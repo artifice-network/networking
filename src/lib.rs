@@ -1,20 +1,45 @@
 /*!
-let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
-let host = ArtificeHost::from_host_data(&config).unwrap();
-let peer = serde_json::from_str("peer_str").unwrap();
-let stream = host.connect(peer).unwrap();
-let mut buffer = Vec::new();
-stream.read(&mut buffer).unwrap();
-stream.write(&buffer).unwrap();
+
+# Client
+
+```
+use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
+use std::io::{Read, Write};
+fn main(){
+    let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
+    let host = ArtificeHost::from_host_data(&config).unwrap();
+    let peer: ArtificePeer = serde_json::from_str("peer_str").unwrap();
+    let mut stream = host.connect(peer).unwrap();
+    let mut buffer = Vec::new();
+    stream.read(&mut buffer).unwrap();
+    stream.write(&buffer).unwrap();
+}
+```
+
+# Listen 
+```
+use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
+fn main(){
+    let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
+    let host = ArtificeHost::from_host_data(&config).unwrap();
+    let peer: ArtificePeer = serde_json::from_str("peer_str").unwrap();
+    for netstream in host {
+        let stream = netstream.unwrap();
+        // do something with the stream example:
+        if *stream.peer() == peer {
+            // correct peer
+        }
+    }
+}
+```
 */
 #![feature(maybe_uninit_ref)]
 #![feature(ip)]
 #[macro_use]
 extern crate serde_derive;
 pub mod encryption;
+pub use encryption::*;
 
-pub mod utils;
-pub use utils::*;
 pub mod peers;
 pub mod query;
 pub use peers::*;

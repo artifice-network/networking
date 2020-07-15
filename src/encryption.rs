@@ -1,8 +1,32 @@
 use crypto::blowfish::Blowfish;
 use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
+use crypto::digest::Digest;
+use crypto::sha3::Sha3;
 use std::fmt;
 use std::str::FromStr;
 use rsa::{RSAPrivateKey, PublicKeyParts};
+
+use rand::distributions::Alphanumeric;
+use rand::{thread_rng, Rng};
+use std::iter;
+
+/// used to generate things such as pair keys, and global peer hash, see ArtificePeer
+pub fn random_string(len: usize) -> String {
+    let mut rng = thread_rng();
+    iter::repeat(())
+        .map(|()| rng.sample(Alphanumeric))
+        .take(len)
+        .collect()
+}
+
+/// used to encrypt password and generate a key that can be used to encrypt, and decrypt data
+pub fn generate_key(password: &[u8]) -> Vec<u8>{
+    let mut hasher = Sha3::sha3_256();
+    hasher.input(password);
+    let mut retvec = Vec::new();
+    hasher.result(&mut retvec);
+    retvec
+}
 /// usese blowfish symetrical encryption to protect information such as peers, permissions, installed applications, and configs in teh case of a system compromise
 /// the intent is not t ohide this information from the user, rather to protect the network in case of a compromise of a peer
 /// the implementation of this program wide encryption is such that in order for a user to use the network they must provide a decyption key as a password for the network

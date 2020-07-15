@@ -1,2 +1,0 @@
-use networking::*;
-fn main() {}
