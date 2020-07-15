@@ -3,6 +3,9 @@ let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
 let host = ArtificeHost::from_host_data(&config).unwrap();
 let peer = serde_json::from_str("peer_str").unwrap();
 let stream = host.connect(peer).unwrap();
+let mut buffer = Vec::new();
+stream.read(&mut buffer).unwrap();
+stream.write(&buffer).unwrap();
 */
 #![feature(maybe_uninit_ref)]
 #![feature(ip)]
@@ -129,7 +132,14 @@ impl Write for NetworkStream{
         let mut rng = OsRng;
         let public_key = RSAPublicKey::from(&self.priv_key);
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        let enc_data = public_key.encrypt(&mut rng, padding, &buf[..]).expect("failed to encrypt");
+        let mut buffer = Vec::new();
+        let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
+        let header_len: [u8;2] = (bytes.len() as u16).to_be_bytes();
+        buffer.push(header_len[0]);
+        buffer.push(header_len[1]);
+        buffer.extend_from_slice(bytes.as_slice());
+        buffer.extend_from_slice(buf);
+        let enc_data = public_key.encrypt(&mut rng, padding, &buffer[..]).expect("failed to encrypt");
         let mut stream = self.stream.lock().unwrap();
         stream.write(&enc_data)
     }
@@ -148,7 +158,15 @@ impl Read for NetworkStream {
             Ok(data) => data,
             Err(_e) => return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unauthorized connection")),
         };
-        let mut slice = dec_data.as_slice();
+        let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
+        let header_str = String::from_utf8(dec_data[2..header_len].to_vec()).unwrap();
+        let header: Header = serde_json::from_str(&header_str).unwrap();
+        if header != self.header {
+            return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unauthorized connection"));
+        }
+        let mut tempvec = Vec::new();
+        tempvec.extend_from_slice(&dec_data[header_len..dec_data.len()]);
+        let mut slice = tempvec.as_slice();
         let copied = std::io::copy(&mut slice, &mut outbuf)?;
         Ok(copied as usize)
     }
