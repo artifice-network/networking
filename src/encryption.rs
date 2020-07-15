@@ -1,10 +1,10 @@
 use crypto::blowfish::Blowfish;
-use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
+use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
+use rsa::{PublicKeyParts, RSAPrivateKey};
 use std::fmt;
 use std::str::FromStr;
-use rsa::{RSAPrivateKey, PublicKeyParts};
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -20,7 +20,7 @@ pub fn random_string(len: usize) -> String {
 }
 
 /// used to encrypt password and generate a key that can be used to encrypt, and decrypt data
-pub fn generate_key(password: &[u8]) -> Vec<u8>{
+pub fn generate_key(password: &[u8]) -> Vec<u8> {
     let mut hasher = Sha3::sha3_256();
     hasher.input(password);
     let mut retvec = Vec::new();
@@ -73,25 +73,25 @@ use serde::{
     ser::{Serialize, Serializer},
 };
 /// the purpose of this structure is to provide an implementation of BigUint, as is used by the rsa crate, that can be serialized for the sake of storing an retriving rsa keys
-#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BigNum {
-    value: BigUint,
+    value: Vec<u8>,
 }
 impl BigNum {
     pub fn from_biguint(biguint: BigUint) -> Self {
-        Self { value: biguint }
+        Self { value: biguint.to_bytes_be()}
     }
-    pub fn into_inner(self) -> BigUint {
-        self.value
+    pub fn into_inner(&self) -> BigUint {
+        BigUint::from_bytes_be(&self.value)
     }
 }
 
 impl fmt::Display for BigNum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "{}", self.value)
+        write!(f, "{:?}", self.value)
     }
 }
-
+/*
 impl Serialize for BigNum {
     fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
     where
@@ -114,7 +114,10 @@ impl<'de> Visitor<'de> for BigNumVisitor {
     where
         E: de::Error,
     {
-        Ok(BigNum::from_str(s).unwrap())
+        println!("deserialize value: {}",s);
+        let fromstr = BigNum::from_str(s).unwrap();
+        println!("fromstr: {:?}", fromstr);
+        Ok(fromstr)
     }
 }
 impl<'de> Deserialize<'de> for BigNum {
@@ -132,7 +135,7 @@ impl FromStr for BigNum {
         let value = BigUint::from_bytes_be(s.as_bytes());
         Ok(Self { value })
     }
-}
+}*/
 /// this struct is used within ArtificePeer, that is transmittted over then network so as to provide the public key of the peer to the hsot
 /// like BigNum, this is an abstraction of RSAPublicKey that can be serialized using the serde crate
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
@@ -144,10 +147,10 @@ impl PubKeyPair {
     pub fn from_parts(n: BigNum, e: BigNum) -> Self {
         Self { n, e }
     }
-    pub fn n(&self) -> BigUint{
+    pub fn n(&self) -> BigUint {
         self.n.clone().into_inner()
     }
-    pub fn e(&self) -> BigUint{
+    pub fn e(&self) -> BigUint {
         self.e.clone().into_inner()
     }
 }
@@ -177,16 +180,20 @@ impl PrivKeyComp {
     }
     /// used to create the key (should only be run once per host owing to the long execution time)
     /// designed for use in the installer only
-    pub fn generate() -> rsa::errors::Result<Self>{
+    pub fn generate() -> rsa::errors::Result<Self> {
         use rand::rngs::OsRng;
 
-    let mut rng = OsRng;
-    let bits = 2048;
-    let private_key = RSAPrivateKey::new(&mut rng, bits)?;
-    let d = BigNum::from_biguint(private_key.d().clone());
-    let primes: Vec<BigNum> = private_key.primes().iter().map(|p|{BigNum::from_biguint(p.clone())}).collect();
-    let n = BigNum::from_biguint(private_key.n().clone());
-    let e = BigNum::from_biguint(private_key.e().clone());
-    Ok(Self {n,e,d,primes})
+        let mut rng = OsRng;
+        let bits = 2048;
+        let private_key = RSAPrivateKey::new(&mut rng, bits)?;
+        let d = BigNum::from_biguint(private_key.d().clone());
+        let primes: Vec<BigNum> = private_key
+            .primes()
+            .iter()
+            .map(|p| BigNum::from_biguint(p.clone()))
+            .collect();
+        let n = BigNum::from_biguint(private_key.n().clone());
+        let e = BigNum::from_biguint(private_key.e().clone());
+        Ok(Self { n, e, d, primes })
     }
 }

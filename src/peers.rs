@@ -2,6 +2,23 @@ use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::encryption::PubKeyPair;
 
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+pub struct Layer3SocketAddr {
+    addr: Layer3Addr,
+    port: u16,
+}
+impl Layer3SocketAddr {
+    pub fn from_layer3_addr(addr: Layer3Addr, port: u16) -> Self {
+        Self { addr, port }
+    }
+    pub fn as_socket_addr(&self) -> SocketAddr {
+        SocketAddr::new(self.addr.as_ipaddr(), self.port)
+    }
+    pub fn as_ipaddr(&self) -> IpAddr {
+        self.addr.as_ipaddr()
+    }
+}
+
 /// representation of an IpAddr that can be saved to a file, the purpose of this being the ability to connect to stable global peers even after the cnnection has been closed for a time
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub enum Layer3Addr {
@@ -51,15 +68,17 @@ pub fn back_and_forth() {
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct ArtificePeer {
     global_peer_hash: String,
-    addr: Layer3Addr,
+    addr: Layer3SocketAddr,
     routable: bool,
     pubkey: PubKeyPair,
     /// this is only for the pair between this server and that peer
     peer_hash: String,
 }
-impl PartialEq for ArtificePeer{
-    fn eq(&self, other: &Self) -> bool{
-        self.global_peer_hash == other.global_peer_hash && self.pubkey == other.pubkey && self.peer_hash == other.peer_hash
+impl PartialEq for ArtificePeer {
+    fn eq(&self, other: &Self) -> bool {
+        self.global_peer_hash == other.global_peer_hash
+            && self.pubkey == other.pubkey
+            && self.peer_hash == other.peer_hash
     }
 }
 impl ArtificePeer {
@@ -71,7 +90,7 @@ impl ArtificePeer {
     pub fn new(
         peer_hash: String,
         global_peer_hash: String,
-        addr: Layer3Addr,
+        addr: Layer3SocketAddr,
         pubkey: PubKeyPair,
     ) -> Self {
         let routable = addr.as_ipaddr().is_global();
@@ -94,12 +113,10 @@ impl ArtificePeer {
     pub fn peer_hash(&self) -> String {
         self.peer_hash.clone()
     }
-    #[cfg(test)]
-    pub fn generate(peer_hash: String) -> Self{
-        let global_peer_hash = random_string(50);
-        let routable = true;
-        let addr = Layer3Addr::V4([127,0,0,1]);
-        let pubkey = RSAPublicKey::new();
-        Self {global_peer_hash, routable, pubkey, addr, peer_hash}
+    pub fn socket_addr(&self) -> std::net::SocketAddr {
+        self.addr.as_socket_addr()
     }
+}
+pub trait PeerList {
+    fn get_peer(global_hash: &str) -> Option<ArtificePeer>;
 }

@@ -38,8 +38,8 @@ impl<Req: Clone + Debug> Request<Req> {
         self.next()
     }
 }
-impl<Req: Clone + Debug> Default for Request<Req>{
-    fn default() -> Self{
+impl<Req: Clone + Debug> Default for Request<Req> {
+    fn default() -> Self {
         Self::new()
     }
 }
@@ -124,8 +124,8 @@ impl<T: Clone + Debug> fmt::Debug for Response<T> {
             .finish()
     }
 }
-impl<Rsp: Clone + Debug> Default for Response<Rsp>{
-    fn default() -> Self{
+impl<Rsp: Clone + Debug> Default for Response<Rsp> {
+    fn default() -> Self {
         Self::new()
     }
 }
@@ -164,8 +164,8 @@ impl<Req: Clone + Debug, Rsp: Clone + Debug> Query<Req, Rsp> {
         self.response.recv()
     }
 }
-impl<Req: Clone + Debug, Rsp: Clone + Debug> Default for Query<Req,Rsp>{
-    fn default() -> Self{
+impl<Req: Clone + Debug, Rsp: Clone + Debug> Default for Query<Req, Rsp> {
+    fn default() -> Self {
         Self::new()
     }
 }
