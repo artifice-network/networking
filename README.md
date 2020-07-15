@@ -1,0 +1,1 @@
+the point of this crate is to provide networking support between peers on MAC, Linux, and Windows it will also act as the artifice server
