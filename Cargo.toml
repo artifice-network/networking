@@ -1,6 +1,6 @@
 [package]
 name = "networking"
-version = "alpha2"
+version = "0.1.1"
 authors = ["julian lazaras <lazaras@pdx.edu>"]
 edition = "2018"
 license = "MIT"
