@@ -9,15 +9,27 @@ it would be better to use a management crate buf this example would technically 
 # Client
 
 ```rust
-use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
+use networking::{random_string, ArtificeConfig, ArtificeHost, ArtificePeer, Layer3Addr};
+use std::fs::File;
 use std::io::{Read, Write};
-fn main(){
-    let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
-    let host = ArtificeHost::from_host_data(&config).unwrap();
-    let peer: ArtificePeer = serde_json::from_str("peer_str").unwrap();
+use std::net::{IpAddr, Ipv4Addr};
+fn main() {
+    let mut config_file = File::open("host.json").unwrap();
+    let mut conf_vec = String::new();
+    config_file.read_to_string(&mut conf_vec).unwrap();
+    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
+    let mut file = File::open("peer.json").unwrap();
+    let mut invec = Vec::new();
+    file.read_to_end(&mut invec).unwrap();
+    let string = String::from_utf8(invec).unwrap();
+   // println!("invec: {}", invec);
+    let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
+    let host = ArtificeHost::client_only(&config);
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
+    println!("about to read from sream");
     stream.read(&mut buffer).unwrap();
+    println!("read from stream");
     stream.write(&buffer).unwrap();
 }
 ```
@@ -25,10 +37,18 @@ fn main(){
 # Listen 
 ```rust
 use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
-fn main(){
-    let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
+use std::fs::File;
+use std::io::Read;
+fn main() {
+    let mut config_file = File::open("host.json").unwrap();
+    let mut conf_vec = String::new();
+    config_file.read_to_string(&mut conf_vec).unwrap();
+    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
     let host = ArtificeHost::from_host_data(&config).unwrap();
-    let peer: ArtificePeer = serde_json::from_str("peer_str").unwrap();
+    let mut file = File::open("peer.json").unwrap();
+    let mut invec = String::new();
+    file.read_to_string(&mut invec).unwrap();
+    let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
         let stream = netstream.unwrap();
         // do something with the stream example:
@@ -37,4 +57,5 @@ fn main(){
         }
     }
 }
+
 ```
