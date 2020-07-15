@@ -8,12 +8,10 @@ description = "networking library that underpins the artifice network"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
 [dependencies]
-rsa = "*"
-serde_derive = "*"
-serde_json = "*"
-serde = "*"
-num-bigint-dig = "*"
-rust-crypto = "*"
+rsa = "0.3.0"
+serde_derive = "1.0.114"
+serde_json = "1.0.56"
+serde = "1.0.114"
+num-bigint-dig = "0.6.0"
+rust-crypto = "0.2.36"
 rand = "0.7.3"
-tokio = {version = "*", features = ["tcp", "udp"]}
-futures = "*"
