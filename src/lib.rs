@@ -1,3 +1,9 @@
+/*!
+let config: ArtificeConfig = serde_json::from_str("some_str").unwrap();
+let host = ArtificeHost::from_host_data(&config).unwrap();
+let peer = serde_json::from_str("peer_str").unwrap();
+let stream = host.connect(peer).unwrap();
+*/
 #![feature(maybe_uninit_ref)]
 #![feature(ip)]
 #[macro_use]
@@ -24,10 +30,10 @@ use std::{
     },
     thread,
     time::Duration,
-    io::Read,
+    io::{Read, Write},
 };
 
-use rsa::{RSAPrivateKey, RSAPublicKey, PublicKeyParts, PaddingScheme};
+use rsa::{RSAPrivateKey, RSAPublicKey, PublicKeyParts, PaddingScheme, PublicKey};
 
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
@@ -117,7 +123,36 @@ impl NetworkStream {
         self.header.pubkey()
     }
 }
-
+impl Write for NetworkStream{
+    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize>{
+        use rand::rngs::OsRng;
+        let mut rng = OsRng;
+        let public_key = RSAPublicKey::from(&self.priv_key);
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let enc_data = public_key.encrypt(&mut rng, padding, &buf[..]).expect("failed to encrypt");
+        let mut stream = self.stream.lock().unwrap();
+        stream.write(&enc_data)
+    }
+    fn flush(&mut self) -> std::io::Result<()>{
+        let mut stream = self.stream.lock().unwrap();
+        stream.flush()
+    }
+}
+impl Read for NetworkStream {
+    fn read(&mut self, mut outbuf: &mut [u8]) -> std::io::Result<usize>{
+        let mut buffer = Vec::new();
+        let mut stream = self.stream.lock().unwrap();
+        stream.read(&mut buffer)?;
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let dec_data = match self.priv_key.decrypt(padding, &buffer){
+            Ok(data) => data,
+            Err(_e) => return Err(std::io::Error::new(std::io::ErrorKind::PermissionDenied, "unauthorized connection")),
+        };
+        let mut slice = dec_data.as_slice();
+        let copied = std::io::copy(&mut slice, &mut outbuf)?;
+        Ok(copied as usize)
+    }
+}
 pub struct ArtificeHost {
     priv_key: RSAPrivateKey,
     broadcast: bool,
