@@ -3,7 +3,7 @@ name = "networking"
 version = "0.1.0"
 authors = ["julian lazaras <lazaras@pdx.edu>"]
 edition = "2018"
-license = "MIT/apache"
+license = "MIT"
 description = "networking library that underpins the artifice network"
 # See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
 
