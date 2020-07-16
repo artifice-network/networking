@@ -13,6 +13,7 @@ fn main() {
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
         let mut stream = netstream.unwrap();
+        println!("about to write to stream");
         stream.write(b"hello world").unwrap();
         // do something with the stream example:
         if *stream.peer() == peer {

@@ -17,7 +17,9 @@ fn main() {
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
     println!("about to read from sream");
-    stream.read(&mut buffer).unwrap();
+    println!("got {} bytes from server", stream.read(&mut buffer).unwrap());
     println!("read from stream");
+    let string = String::from_utf8(buffer).unwrap();
+    println!("got message: {} from server", string);
     //stream.write(&buffer).unwrap();
 }

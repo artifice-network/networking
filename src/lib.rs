@@ -16,14 +16,11 @@ fn main() {
     let mut invec = Vec::new();
     file.read_to_end(&mut invec).unwrap();
     let string = String::from_utf8(invec).unwrap();
-   // println!("invec: {}", invec);
     let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
     let host = ArtificeHost::client_only(&config);
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
-    println!("about to read from sream");
     stream.read(&mut buffer).unwrap();
-    println!("read from stream");
     stream.write(&buffer).unwrap();
 }
 ```
@@ -235,9 +232,8 @@ fn get_headers(priv_key: &RSAPrivateKey, buffer: &[u8], data_len: usize) -> std:
             ));
         }
     };
-    println!("dec data len: {}, data len: {}", dec_data.len(), data_len);
     let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-    let header_str = match String::from_utf8(dec_data[2..header_len].to_vec()) {
+    let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
         Ok(header_str) => header_str,
         Err(_e) => {
             return Err(std::io::Error::new(
@@ -246,7 +242,6 @@ fn get_headers(priv_key: &RSAPrivateKey, buffer: &[u8], data_len: usize) -> std:
             ))
         }
     };
-    println!("header_str: {}, len: {}", header_str, header_str.len());
     Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
     /*match serde_json::from_str(&header_str) {
         Ok(header) => Ok((header, header_len)),
@@ -274,8 +269,8 @@ impl Read for NetworkStream {
             ));
         }
         // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() < 65535 {
-            buf.extend_from_slice(&buffer[header_len..header.packet_len()]);
+        if header.packet_len()+header_len < 65535 {
+            buf.extend_from_slice(&buffer[header_len..header_len+header.packet_len()]);
         } else {
             buf.extend_from_slice(&buffer[header_len..65535]);
         }
@@ -298,9 +293,7 @@ impl Read for NetworkStream {
             let buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
         }
-        let mut slice = buf.as_slice();
-        let copied = std::io::copy(&mut slice, &mut outbuf)?;
-        Ok(copied as usize)
+        outbuf.write(&buf)
     }
 }
 /// the in execution host struct built from AritificeConfig
@@ -326,7 +319,6 @@ impl std::iter::Iterator for ArtificeHost {
                             let data_len = stream.read(&mut buffer).unwrap();
                         }
                         let padding = PaddingScheme::new_pkcs1v15_encrypt();
-                        println!("data len: {}", data_len);
                         let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
                             .expect("decryption failed"); /* {
                                                               Ok(data) => data,
@@ -384,10 +376,8 @@ impl ArtificeHost {
         let key = peer.pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
-        println!("msg len: {}", data.len());
         let enc_data = rsa_encrypt(&public_key, &data).unwrap();
         stream.write(&enc_data)?;
-        println!("sent encrypted data with len: {}", data.len());
         Ok(NetworkStream::new(stream, self.priv_key.clone(), peer))
     }
     /// designed only for testing but may be used for non global peers

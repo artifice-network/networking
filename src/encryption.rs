@@ -72,7 +72,6 @@ pub fn rsa_decrypt(
     enc_data: &[u8],
     data_len: usize,
 ) -> Result<Vec<u8>, rsa::errors::Error> {
-    println!("in_data len: {}", data_len);
     let mut dec_data = Vec::new();
     let mut dec = 0;
     while dec < data_len {
@@ -85,7 +84,6 @@ pub fn rsa_decrypt(
             dec
         };
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        println!("decrypting, start: {}, end: {}", start, end);
         
         dec_data.append(
             &mut priv_key
@@ -93,8 +91,6 @@ pub fn rsa_decrypt(
                 .expect("failed to decrypt"),
         );
     }
-    //std::thread::sleep(std::time::Duration::from_millis(100));
-    println!("dec_data len: {}", dec_data.len());
     Ok(dec_data)
 }
 pub fn rsa_encrypt(public_key: &RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error> {
@@ -105,13 +101,12 @@ pub fn rsa_encrypt(public_key: &RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rs
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
         let start = index;
         let end = if index + 245 > data.len() {
-            index += data.len();
+            index = data.len();
             data.len()
         } else {
             index += 245;
             index
         };
-        println!("enc_len: {}", enc_data.len());
         enc_data.append(
             &mut public_key
                 .encrypt(&mut rng, padding, &data[start..end])
