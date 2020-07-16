@@ -58,14 +58,16 @@ fn main() {
 #![feature(ip)]
 #[macro_use]
 extern crate serde_derive;
+/// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
 pub use encryption::*;
-
+/// contains the ArtificePeer struct
 pub mod peers;
+/// used for permission requests in the manager crate
 pub mod query;
+use crate::encryption::{BigNum, PrivKeyComp, PubKeyPair};
 pub use peers::*;
 use rand::rngs::OsRng;
-use crate::encryption::{BigNum, PrivKeyComp, PubKeyPair};
 use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
@@ -79,7 +81,7 @@ use std::{
 };
 
 use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
-
+/// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
     broadcast: bool,
@@ -88,6 +90,7 @@ pub struct ArtificeConfig {
     host: ArtificeHostData,
 }
 impl ArtificeConfig {
+    /// used to create new host, primarily designed for use by the installer crate
     pub fn generate(address: Layer3Addr) -> Self {
         let broadcast = false;
         let port = 6464;
@@ -137,14 +140,25 @@ impl ArtificeHostData {
         self.global_peer_hash.clone()
     }
 }
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// contains peer information sent accross the network in an effort to prevent man in the middle attacks
+#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct Header {
     peer: ArtificePeer,
     pubkey: PubKeyPair,
+    packet_len: usize,
+}
+impl PartialEq for Header {
+    fn eq(&self, other: &Self) -> bool {
+        self.peer == other.peer && self.pubkey == other.pubkey
+    }
 }
 impl Header {
     pub fn new(peer: ArtificePeer, pubkey: PubKeyPair) -> Self {
-        Self { peer, pubkey }
+        Self {
+            peer,
+            pubkey,
+            packet_len: 0,
+        }
     }
     pub fn peer(&self) -> &ArtificePeer {
         &self.peer
@@ -152,7 +166,14 @@ impl Header {
     pub fn pubkey(&self) -> RSAPublicKey {
         RSAPublicKey::new(self.pubkey.n(), self.pubkey.e()).unwrap()
     }
+    pub fn packet_len(&self) -> usize {
+        self.packet_len
+    }
+    pub fn set_len(&mut self, len: usize) {
+        self.packet_len = len;
+    }
 }
+/// the TcpStream version of the artifice network, implements encryption automatically in its implementation of std::io::Write, and std::io::Read
 #[derive(Debug, Clone)]
 pub struct NetworkStream {
     header: Header,
@@ -184,20 +205,18 @@ impl NetworkStream {
 }
 impl Write for NetworkStream {
     fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let mut rng = OsRng;
         let key = self.peer().pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
         let mut buffer = Vec::new();
+        self.header.set_len(buf.len());
         let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
         let header_len: [u8; 2] = (bytes.len() as u16).to_be_bytes();
         buffer.push(header_len[0]);
         buffer.push(header_len[1]);
         buffer.extend_from_slice(bytes.as_slice());
         buffer.extend_from_slice(buf);
-        let enc_data = public_key
-            .encrypt(&mut rng, padding, &buffer[..])
-            .expect("failed to encrypt");
+        let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
         let mut stream = self.stream.lock().unwrap();
         stream.write(&enc_data)
     }
@@ -206,38 +225,85 @@ impl Write for NetworkStream {
         stream.flush()
     }
 }
+fn get_headers(priv_key: &RSAPrivateKey, buffer: &[u8], data_len: usize) -> std::io::Result<(Header, usize)> {
+    let dec_data = match rsa_decrypt(priv_key, buffer, data_len) {
+        Ok(dec_data) => dec_data,
+        Err(_e) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "decryption failure",
+            ));
+        }
+    };
+    println!("dec data len: {}, data len: {}", dec_data.len(), data_len);
+    let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
+    let header_str = match String::from_utf8(dec_data[2..header_len].to_vec()) {
+        Ok(header_str) => header_str,
+        Err(_e) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "couldn't read input as string",
+            ))
+        }
+    };
+    println!("header_str: {}, len: {}", header_str, header_str.len());
+    Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
+    /*match serde_json::from_str(&header_str) {
+        Ok(header) => Ok((header, header_len)),
+        Err(_e) => Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "couldn't parse header",
+        )),
+    }*/
+}
 impl Read for NetworkStream {
     fn read(&mut self, mut outbuf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buffer = Vec::new();
+        let mut buffer: [u8; 65535] = [0; 65535];
         let mut stream = self.stream.lock().unwrap();
-        //println!("{}", stream.read(&mut buffer)?);
-        while stream.read(&mut buffer)? == 0 {}
-        let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        let dec_data = match self.priv_key.decrypt(padding, &buffer) {
-            Ok(data) => data,
-            Err(_e) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "unauthorized connection, failed to decrypt",
-                ))
-            }
-        };
-        let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-        let header_str = String::from_utf8(dec_data[2..header_len].to_vec()).unwrap();
-        let header: Header = serde_json::from_str(&header_str).unwrap();
+        let mut buf = Vec::new();
+        let mut data_len = stream.read(&mut buffer)?;
+        while data_len == 0 {
+            data_len = stream.read(&mut buffer)?;
+        }
+        // verify that a man in the middle attack hasn't occured
+        let (header, header_len) = get_headers(&self.priv_key, &buffer, data_len)?;
         if header != self.header {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
                 "headers are different",
             ));
         }
-        let mut tempvec = Vec::new();
-        tempvec.extend_from_slice(&dec_data[header_len..dec_data.len()]);
-        let mut slice = tempvec.as_slice();
+        // add data not part of the header from the first packet to the greater vector
+        if header.packet_len() < 65535 {
+            buf.extend_from_slice(&buffer[header_len..header.packet_len()]);
+        } else {
+            buf.extend_from_slice(&buffer[header_len..65535]);
+        }
+        //hadle further packets
+        while data_len < header.packet_len() + header_len as usize {
+            let mut temp_len = stream.read(&mut buffer)?;
+            while temp_len == 0 {
+                temp_len = stream.read(&mut buffer)?;
+            }
+            data_len += temp_len;
+            let dec_buffer = match rsa_decrypt(&self.priv_key, &buffer, temp_len) {
+                Ok(dec_buffer) => dec_buffer,
+                Err(_e) => {
+                    return Err(std::io::Error::new(
+                        std::io::ErrorKind::PermissionDenied,
+                        "unable to decrypt data",
+                    ));
+                }
+            };
+            let buffer = [0; 65535];
+            buf.extend_from_slice(&dec_buffer);
+        }
+        let mut slice = buf.as_slice();
         let copied = std::io::copy(&mut slice, &mut outbuf)?;
         Ok(copied as usize)
     }
 }
+/// the in execution host struct built from AritificeConfig
 pub struct ArtificeHost {
     priv_key: RSAPrivateKey,
     broadcast: bool,
@@ -251,21 +317,26 @@ impl std::iter::Iterator for ArtificeHost {
             Some(listener) => match listener.incoming().next() {
                 Some(resstream) => match resstream {
                     Ok(mut stream) => {
-                        let mut buffer = Vec::new();
-                        match stream.read(&mut buffer) {
-                            Ok(bytes) => println!("{}", bytes),
+                        let mut buffer: [u8; 65535] = [0; 65535];
+                        let data_len = match stream.read(&mut buffer) {
+                            Ok(bytes) => bytes,
                             Err(e) => return Some(Err(e)),
                         };
+                        while data_len == 0 {
+                            let data_len = stream.read(&mut buffer).unwrap();
+                        }
                         let padding = PaddingScheme::new_pkcs1v15_encrypt();
-                        let dec_data = match self.priv_key.decrypt(padding, &buffer) {
-                            Ok(data) => data,
-                            Err(_e) => {
-                                return Some(Err(std::io::Error::new(
-                                    std::io::ErrorKind::PermissionDenied,
-                                    "unauthorized connection",
-                                )))
-                            }
-                        };
+                        println!("data len: {}", data_len);
+                        let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
+                            .expect("decryption failed"); /* {
+                                                              Ok(data) => data,
+                                                              Err(_e) => {
+                                                                  return Some(Err(std::io::Error::new(
+                                                                      std::io::ErrorKind::PermissionDenied,
+                                                                      "unauthorized connection",
+                                                                  )))
+                                                              }
+                                                          };*/
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
                         Some(Ok(NetworkStream::new(stream, self.priv_key.clone(), peer)))
@@ -308,27 +379,18 @@ impl ArtificeHost {
         })
     }
     pub fn connect(&self, peer: ArtificePeer) -> std::io::Result<NetworkStream> {
-        let mut rng = OsRng;
         let mut stream = TcpStream::connect(peer.socket_addr())?;
         // encrypt the peer before sending
         let key = peer.pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
-        let msg = serde_json::to_string(&peer).unwrap().into_bytes();
-        let mut data = Vec::new();
-        let len = msg.len();
-        for m in 0..(len - (len % 245)) / 245 {
-            let end = if m * 245 + 245 > len {
-                len
-            }else{
-                m * 245 + 245
-            };
-            let padding = PaddingScheme::new_pkcs1v15_encrypt();
-            data.append(&mut public_key.encrypt(&mut rng, padding, &msg[m*245..(m*245+245)]).expect("failed to encrypt"));
-        }
-        stream.write(&data)?;
-        println!("sent encrypted data");
+        let data = serde_json::to_string(&peer).unwrap().into_bytes();
+        println!("msg len: {}", data.len());
+        let enc_data = rsa_encrypt(&public_key, &data).unwrap();
+        stream.write(&enc_data)?;
+        println!("sent encrypted data with len: {}", data.len());
         Ok(NetworkStream::new(stream, self.priv_key.clone(), peer))
     }
+    /// designed only for testing but may be used for non global peers
     pub fn client_only(config: &ArtificeConfig) -> Self {
         let broadcast = config.broadcast();
         let data = config.host_data();
@@ -354,6 +416,8 @@ impl ArtificeHost {
             listener,
         }
     }
+    /// broadcast the information about this peer to other peers on the network
+    /// returns a sender that can be used to stop broadcasting
     pub fn begin_broadcast(&self) -> std::io::Result<Sender<bool>> {
         let (sender, recv) = channel();
         let socket = UdpSocket::bind(self.socket_addr)?;

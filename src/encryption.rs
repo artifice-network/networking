@@ -2,9 +2,10 @@ use crypto::blowfish::Blowfish;
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
 use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
-use rsa::{PublicKeyParts, RSAPrivateKey};
+use rsa::{PaddingScheme, PublicKeyParts, RSAPrivateKey, RSAPublicKey, PublicKey};
 use std::fmt;
 use std::str::FromStr;
+use rand::rngs::OsRng;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -66,6 +67,59 @@ pub fn decrypt(key: &[u8], input: &[u8], output_vec: &mut Vec<u8>) {
         output_vec.extend_from_slice(&output);
     }
 }
+pub fn rsa_decrypt(
+    priv_key: &RSAPrivateKey,
+    enc_data: &[u8],
+    data_len: usize,
+) -> Result<Vec<u8>, rsa::errors::Error> {
+    println!("in_data len: {}", data_len);
+    let mut dec_data = Vec::new();
+    let mut dec = 0;
+    while dec < data_len {
+        let start = dec;
+        let end = if dec + 256 > data_len {
+            dec = data_len;
+            data_len
+        } else {
+            dec += 256;
+            dec
+        };
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        println!("decrypting, start: {}, end: {}", start, end);
+        
+        dec_data.append(
+            &mut priv_key
+                .decrypt(padding, &enc_data[start..end])
+                .expect("failed to decrypt"),
+        );
+    }
+    //std::thread::sleep(std::time::Duration::from_millis(100));
+    println!("dec_data len: {}", dec_data.len());
+    Ok(dec_data)
+}
+pub fn rsa_encrypt(public_key: &RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error> {
+    let mut rng = OsRng;
+    let mut index = 0;
+    let mut enc_data = Vec::new();
+    while index < data.len() {
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let start = index;
+        let end = if index + 245 > data.len() {
+            index += data.len();
+            data.len()
+        } else {
+            index += 245;
+            index
+        };
+        println!("enc_len: {}", enc_data.len());
+        enc_data.append(
+            &mut public_key
+                .encrypt(&mut rng, padding, &data[start..end])
+                .expect("failed to encrypt"),
+        );
+    }
+    Ok(enc_data)
+}
 
 use num_bigint_dig::BigUint;
 use serde::{
@@ -79,7 +133,9 @@ pub struct BigNum {
 }
 impl BigNum {
     pub fn from_biguint(biguint: BigUint) -> Self {
-        Self { value: biguint.to_bytes_be()}
+        Self {
+            value: biguint.to_bytes_be(),
+        }
     }
     pub fn into_inner(&self) -> BigUint {
         BigUint::from_bytes_be(&self.value)
@@ -91,51 +147,6 @@ impl fmt::Display for BigNum {
         write!(f, "{:?}", self.value)
     }
 }
-/*
-impl Serialize for BigNum {
-    fn serialize<S>(&self, serializer: S) -> Result<S::Ok, S::Error>
-    where
-        S: Serializer,
-    {
-        serializer.serialize_str(&format!("{}", &self.value))
-    }
-}
-struct BigNumVisitor;
-impl<'de> Visitor<'de> for BigNumVisitor {
-    type Value = BigNum;
-    fn expecting(&self, formatter: &mut fmt::Formatter) -> fmt::Result {
-        write!(
-            formatter,
-            "a string of length {}",
-            std::mem::size_of::<BigNum>()
-        )
-    }
-    fn visit_str<E>(self, s: &str) -> Result<Self::Value, E>
-    where
-        E: de::Error,
-    {
-        println!("deserialize value: {}",s);
-        let fromstr = BigNum::from_str(s).unwrap();
-        println!("fromstr: {:?}", fromstr);
-        Ok(fromstr)
-    }
-}
-impl<'de> Deserialize<'de> for BigNum {
-    fn deserialize<D>(deserializer: D) -> Result<BigNum, D::Error>
-    where
-        D: Deserializer<'de>,
-    {
-        deserializer.deserialize_str(BigNumVisitor)
-    }
-}
-
-impl FromStr for BigNum {
-    type Err = String;
-    fn from_str(s: &str) -> Result<Self, Self::Err> {
-        let value = BigUint::from_bytes_be(s.as_bytes());
-        Ok(Self { value })
-    }
-}*/
 /// this struct is used within ArtificePeer, that is transmittted over then network so as to provide the public key of the peer to the hsot
 /// like BigNum, this is an abstraction of RSAPublicKey that can be serialized using the serde crate
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]

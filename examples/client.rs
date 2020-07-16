@@ -11,7 +11,7 @@ fn main() {
     let mut invec = Vec::new();
     file.read_to_end(&mut invec).unwrap();
     let string = String::from_utf8(invec).unwrap();
-   // println!("invec: {}", invec);
+    // println!("invec: {}", invec);
     let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
     let host = ArtificeHost::client_only(&config);
     let mut stream = host.connect(peer).unwrap();
@@ -19,5 +19,5 @@ fn main() {
     println!("about to read from sream");
     stream.read(&mut buffer).unwrap();
     println!("read from stream");
-    stream.write(&buffer).unwrap();
+    //stream.write(&buffer).unwrap();
 }
