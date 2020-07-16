@@ -2,10 +2,10 @@ use crypto::blowfish::Blowfish;
 use crypto::digest::Digest;
 use crypto::sha3::Sha3;
 use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
-use rsa::{PaddingScheme, PublicKeyParts, RSAPrivateKey, RSAPublicKey, PublicKey};
-use std::fmt;
-use std::str::FromStr;
 use rand::rngs::OsRng;
+use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+use std::fmt;
+use num_bigint_dig::BigUint;
 
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
@@ -84,7 +84,7 @@ pub fn rsa_decrypt(
             dec
         };
         let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        
+
         dec_data.append(
             &mut priv_key
                 .decrypt(padding, &enc_data[start..end])
@@ -116,11 +116,6 @@ pub fn rsa_encrypt(public_key: &RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rs
     Ok(enc_data)
 }
 
-use num_bigint_dig::BigUint;
-use serde::{
-    de::{self, Deserialize, Deserializer, Visitor},
-    ser::{Serialize, Serializer},
-};
 /// the purpose of this structure is to provide an implementation of BigUint, as is used by the rsa crate, that can be serialized for the sake of storing an retriving rsa keys
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct BigNum {
@@ -187,7 +182,6 @@ impl PrivKeyComp {
     /// used to create the key (should only be run once per host owing to the long execution time)
     /// designed for use in the installer only
     pub fn generate() -> rsa::errors::Result<Self> {
-        use rand::rngs::OsRng;
 
         let mut rng = OsRng;
         let bits = 2048;

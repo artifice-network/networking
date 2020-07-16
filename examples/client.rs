@@ -1,7 +1,6 @@
-use networking::{random_string, ArtificeConfig, ArtificeHost, ArtificePeer, Layer3Addr};
+use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr};
+use std::io::Read;
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -17,9 +16,11 @@ fn main() {
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
     println!("about to read from sream");
-    println!("got {} bytes from server", stream.recv(&mut buffer).unwrap());
+    println!(
+        "got {} bytes from server",
+        stream.recv(&mut buffer).unwrap()
+    );
     println!("read from stream");
     let string = String::from_utf8(buffer).unwrap();
     println!("got message: {} from server", string);
-    //stream.write(&buffer).unwrap();
 }

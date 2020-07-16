@@ -1,6 +1,6 @@
 use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::{Read, Write};
+use std::io::{Read};
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -14,7 +14,9 @@ fn main() {
     for netstream in host {
         let mut stream = netstream.unwrap();
         println!("about to write to stream");
-        stream.send(&"hello world".to_string().into_bytes()).unwrap();
+        stream
+            .send(&"hello world".to_string().into_bytes())
+            .unwrap();
         // do something with the stream example:
         if *stream.peer() == peer {
             // correct peer

@@ -1,12 +1,11 @@
 /*!
 
-# Client
+## Sync Client
 
 ```
-use networking::{random_string, ArtificeConfig, ArtificeHost, ArtificePeer, Layer3Addr};
+use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr};
+use std::io::Read;
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -16,20 +15,29 @@ fn main() {
     let mut invec = Vec::new();
     file.read_to_end(&mut invec).unwrap();
     let string = String::from_utf8(invec).unwrap();
+    // println!("invec: {}", invec);
     let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
     let host = ArtificeHost::client_only(&config);
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
-    stream.read(&mut buffer).unwrap();
-    stream.write(&buffer).unwrap();
+    println!("about to read from sream");
+    println!(
+        "got {} bytes from server",
+        stream.recv(&mut buffer).unwrap()
+    );
+    println!("read from stream");
+    let string = String::from_utf8(buffer).unwrap();
+    println!("got message: {} from server", string);
+    //stream.write(&buffer).unwrap();
 }
+
 ```
 
-# Listen
+## Sync Server
 ```
 use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read};
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -41,7 +49,11 @@ fn main() {
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
-        let stream = netstream.unwrap();
+        let mut stream = netstream.unwrap();
+        println!("about to write to stream");
+        stream
+            .send(&"hello world".to_string().into_bytes())
+            .unwrap();
         // do something with the stream example:
         if *stream.peer() == peer {
             // correct peer
@@ -63,12 +75,14 @@ pub mod peers;
 /// used for permission requests in the manager crate
 pub mod query;
 use crate::encryption::{BigNum, PrivKeyComp, PubKeyPair};
+use futures::task::{Context, Poll};
 pub use peers::*;
-use rand::rngs::OsRng;
+use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream, UdpSocket},
+    pin::Pin,
     sync::{
         mpsc::{channel, RecvTimeoutError, Sender},
         Arc, Mutex,
@@ -76,8 +90,6 @@ use std::{
     thread,
     time::Duration,
 };
-
-use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 /// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
@@ -199,7 +211,8 @@ impl NetworkStream {
     pub fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
     }
-    pub fn recv(&mut self, mut outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
+    /// implented in place of std::io::Read, because reading to empty vec fails
+    pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut stream = self.stream.lock().unwrap();
         let mut buf = Vec::new();
@@ -217,16 +230,16 @@ impl NetworkStream {
             }
         };
         let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-        let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
-        Ok(header_str) => header_str,
-        Err(_e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "couldn't read input as string",
-            ))
-        }
-    };
-    //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
+        let header_str = match String::from_utf8(dec_data[2..header_len + 2].to_vec()) {
+            Ok(header_str) => header_str,
+            Err(_e) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "couldn't read input as string",
+                ))
+            }
+        };
+        //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
         let header: Header = serde_json::from_str(&header_str).expect("coun't deserialize header");
         // verify that a man in the middle attack hasn't occured
         // let (header, header_len) = get_headers(&self.priv_key, &dec_data, data_len)?;
@@ -237,8 +250,8 @@ impl NetworkStream {
             ));
         }
         // add data not part of the header from the first packet to the greater vector
-        if header.packet_len()+header_len < 65535 {
-            buf.extend_from_slice(&dec_data[header_len+2..header_len+header.packet_len()+2]);
+        if header.packet_len() + header_len < 65535 {
+            buf.extend_from_slice(&dec_data[header_len + 2..header_len + header.packet_len() + 2]);
         } else {
             buf.extend_from_slice(&dec_data[header_len..65535]);
         }
@@ -258,7 +271,7 @@ impl NetworkStream {
                     ));
                 }
             };
-            let buffer = [0; 65535];
+            buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
         }
         println!("buf len: {}", buf.len());
@@ -267,11 +280,11 @@ impl NetworkStream {
         outbuf.append(&mut buf);
         Ok(buf.len())
     }
+    /// send data to the peer
     pub fn send(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         println!("buf: {:?}", buf);
         let key = self.peer().pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
-        let padding = PaddingScheme::new_pkcs1v15_encrypt();
         let mut buffer = Vec::new();
         self.header.set_len(buf.len());
         let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
@@ -285,32 +298,21 @@ impl NetworkStream {
         stream.write(&enc_data)
     }
 }
-fn get_headers(priv_key: &RSAPrivateKey, dec_data: &[u8], data_len: usize) -> std::io::Result<(Header, usize)> {
-    let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-    let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
-        Ok(header_str) => header_str,
-        Err(_e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "couldn't read input as string",
-            ))
-        }
-    };
-    Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
-    /*match serde_json::from_str(&header_str) {
-        Ok(header) => Ok((header, header_len)),
-        Err(_e) => Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "couldn't parse header",
-        )),
-    }*/
-}
 /// the in execution host struct built from AritificeConfig
 pub struct ArtificeHost {
     priv_key: RSAPrivateKey,
     broadcast: bool,
     socket_addr: SocketAddr,
     listener: Option<TcpListener>,
+}
+impl futures::future::Future for ArtificeHost {
+    type Output = std::io::Result<NetworkStream>;
+    fn poll(mut self: Pin<&mut Self>, _cx: &mut Context) -> Poll<Self::Output> {
+        match self.next() {
+            Some(res) => Poll::Ready(res),
+            None => Poll::Pending,
+        }
+    }
 }
 impl std::iter::Iterator for ArtificeHost {
     type Item = std::io::Result<NetworkStream>;
@@ -320,14 +322,13 @@ impl std::iter::Iterator for ArtificeHost {
                 Some(resstream) => match resstream {
                     Ok(mut stream) => {
                         let mut buffer: [u8; 65535] = [0; 65535];
-                        let data_len = match stream.read(&mut buffer) {
+                        let mut data_len = match stream.read(&mut buffer) {
                             Ok(bytes) => bytes,
                             Err(e) => return Some(Err(e)),
                         };
                         while data_len == 0 {
-                            let data_len = stream.read(&mut buffer).unwrap();
+                            data_len = stream.read(&mut buffer).unwrap();
                         }
-                        let padding = PaddingScheme::new_pkcs1v15_encrypt();
                         let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
                             .expect("decryption failed"); /* {
                                                               Ok(data) => data,
@@ -353,6 +354,7 @@ impl std::iter::Iterator for ArtificeHost {
         }
     }
 }
+
 impl ArtificeHost {
     pub fn from_host_data(config: &ArtificeConfig) -> std::io::Result<Self> {
         let broadcast = config.broadcast();

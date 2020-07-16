@@ -2,17 +2,20 @@
 ### Purpose
 the point of this crate is to provide networking support between peers on MAC, Linux, and Windows it will also act as the artifice server
 
-# Example usage
+## 
+future implementations include async read/write, as well as async compression
 
-it would be better to use a management crate buf this example would technically work
+## Example usage
 
-# Client
+it would be better to use a management crate but these example would technically work
+
+
+## Sync Client
 
 ```rust
-use networking::{random_string, ArtificeConfig, ArtificeHost, ArtificePeer, Layer3Addr};
+use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::{Read, Write};
-use std::net::{IpAddr, Ipv4Addr};
+use std::io::Read;
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -22,23 +25,29 @@ fn main() {
     let mut invec = Vec::new();
     file.read_to_end(&mut invec).unwrap();
     let string = String::from_utf8(invec).unwrap();
-   // println!("invec: {}", invec);
+    // println!("invec: {}", invec);
     let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
     let host = ArtificeHost::client_only(&config);
     let mut stream = host.connect(peer).unwrap();
     let mut buffer = Vec::new();
     println!("about to read from sream");
-    stream.read(&mut buffer).unwrap();
+    println!(
+        "got {} bytes from server",
+        stream.recv(&mut buffer).unwrap()
+    );
     println!("read from stream");
-    stream.write(&buffer).unwrap();
+    let string = String::from_utf8(buffer).unwrap();
+    println!("got message: {} from server", string);
+    //stream.write(&buffer).unwrap();
 }
+
 ```
 
-# Listen 
+## Sync Server
 ```rust
 use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
-use std::io::Read;
+use std::io::{Read};
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
@@ -50,7 +59,11 @@ fn main() {
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
-        let stream = netstream.unwrap();
+        let mut stream = netstream.unwrap();
+        println!("about to write to stream");
+        stream
+            .send(&"hello world".to_string().into_bytes())
+            .unwrap();
         // do something with the stream example:
         if *stream.peer() == peer {
             // correct peer
