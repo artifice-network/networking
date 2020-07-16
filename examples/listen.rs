@@ -14,7 +14,7 @@ fn main() {
     for netstream in host {
         let mut stream = netstream.unwrap();
         println!("about to write to stream");
-        stream.write(b"hello world").unwrap();
+        stream.send(&"hello world".to_string().into_bytes()).unwrap();
         // do something with the stream example:
         if *stream.peer() == peer {
             // correct peer

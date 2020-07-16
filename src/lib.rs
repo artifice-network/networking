@@ -199,41 +199,25 @@ impl NetworkStream {
     pub fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
     }
-}
-impl Write for NetworkStream {
-    fn write(&mut self, buf: &[u8]) -> std::io::Result<usize> {
-        let key = self.peer().pubkeypair();
-        let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
-        let padding = PaddingScheme::new_pkcs1v15_encrypt();
-        let mut buffer = Vec::new();
-        self.header.set_len(buf.len());
-        let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
-        let header_len: [u8; 2] = (bytes.len() as u16).to_be_bytes();
-        buffer.push(header_len[0]);
-        buffer.push(header_len[1]);
-        buffer.extend_from_slice(bytes.as_slice());
-        buffer.extend_from_slice(buf);
-        let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
+    pub fn recv(&mut self, mut outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
+        let mut buffer: [u8; 65535] = [0; 65535];
         let mut stream = self.stream.lock().unwrap();
-        stream.write(&enc_data)
-    }
-    fn flush(&mut self) -> std::io::Result<()> {
-        let mut stream = self.stream.lock().unwrap();
-        stream.flush()
-    }
-}
-fn get_headers(priv_key: &RSAPrivateKey, buffer: &[u8], data_len: usize) -> std::io::Result<(Header, usize)> {
-    let dec_data = match rsa_decrypt(priv_key, buffer, data_len) {
-        Ok(dec_data) => dec_data,
-        Err(_e) => {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "decryption failure",
-            ));
+        let mut buf = Vec::new();
+        let mut data_len = stream.read(&mut buffer)?;
+        while data_len == 0 {
+            data_len = stream.read(&mut buffer)?;
         }
-    };
-    let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-    let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
+        let dec_data = match rsa_decrypt(&self.priv_key, &buffer, data_len) {
+            Ok(dec_data) => dec_data,
+            Err(_e) => {
+                return Err(std::io::Error::new(
+                    std::io::ErrorKind::PermissionDenied,
+                    "decryption failure",
+                ));
+            }
+        };
+        let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
+        let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
         Ok(header_str) => header_str,
         Err(_e) => {
             return Err(std::io::Error::new(
@@ -242,26 +226,10 @@ fn get_headers(priv_key: &RSAPrivateKey, buffer: &[u8], data_len: usize) -> std:
             ))
         }
     };
-    Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
-    /*match serde_json::from_str(&header_str) {
-        Ok(header) => Ok((header, header_len)),
-        Err(_e) => Err(std::io::Error::new(
-            std::io::ErrorKind::PermissionDenied,
-            "couldn't parse header",
-        )),
-    }*/
-}
-impl Read for NetworkStream {
-    fn read(&mut self, mut outbuf: &mut [u8]) -> std::io::Result<usize> {
-        let mut buffer: [u8; 65535] = [0; 65535];
-        let mut stream = self.stream.lock().unwrap();
-        let mut buf = Vec::new();
-        let mut data_len = stream.read(&mut buffer)?;
-        while data_len == 0 {
-            data_len = stream.read(&mut buffer)?;
-        }
+    //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
+        let header: Header = serde_json::from_str(&header_str).expect("coun't deserialize header");
         // verify that a man in the middle attack hasn't occured
-        let (header, header_len) = get_headers(&self.priv_key, &buffer, data_len)?;
+        // let (header, header_len) = get_headers(&self.priv_key, &dec_data, data_len)?;
         if header != self.header {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
@@ -270,9 +238,9 @@ impl Read for NetworkStream {
         }
         // add data not part of the header from the first packet to the greater vector
         if header.packet_len()+header_len < 65535 {
-            buf.extend_from_slice(&buffer[header_len..header_len+header.packet_len()]);
+            buf.extend_from_slice(&dec_data[header_len+2..header_len+header.packet_len()+2]);
         } else {
-            buf.extend_from_slice(&buffer[header_len..65535]);
+            buf.extend_from_slice(&dec_data[header_len..65535]);
         }
         //hadle further packets
         while data_len < header.packet_len() + header_len as usize {
@@ -293,8 +261,49 @@ impl Read for NetworkStream {
             let buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
         }
-        outbuf.write(&buf)
+        println!("buf len: {}", buf.len());
+        let string = String::from_utf8(buf.clone()).unwrap();
+        println!("got message: {} from server", string);
+        outbuf.append(&mut buf);
+        Ok(buf.len())
     }
+    pub fn send(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+        println!("buf: {:?}", buf);
+        let key = self.peer().pubkeypair();
+        let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
+        let padding = PaddingScheme::new_pkcs1v15_encrypt();
+        let mut buffer = Vec::new();
+        self.header.set_len(buf.len());
+        let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
+        let header_len: [u8; 2] = (bytes.len() as u16).to_be_bytes();
+        buffer.push(header_len[0]);
+        buffer.push(header_len[1]);
+        buffer.extend_from_slice(bytes.as_slice());
+        buffer.extend_from_slice(buf);
+        let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
+        let mut stream = self.stream.lock().unwrap();
+        stream.write(&enc_data)
+    }
+}
+fn get_headers(priv_key: &RSAPrivateKey, dec_data: &[u8], data_len: usize) -> std::io::Result<(Header, usize)> {
+    let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
+    let header_str = match String::from_utf8(dec_data[2..header_len+2].to_vec()) {
+        Ok(header_str) => header_str,
+        Err(_e) => {
+            return Err(std::io::Error::new(
+                std::io::ErrorKind::PermissionDenied,
+                "couldn't read input as string",
+            ))
+        }
+    };
+    Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
+    /*match serde_json::from_str(&header_str) {
+        Ok(header) => Ok((header, header_len)),
+        Err(_e) => Err(std::io::Error::new(
+            std::io::ErrorKind::PermissionDenied,
+            "couldn't parse header",
+        )),
+    }*/
 }
 /// the in execution host struct built from AritificeConfig
 pub struct ArtificeHost {
