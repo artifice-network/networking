@@ -69,6 +69,7 @@ fn main() {
 extern crate serde_derive;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
+pub mod error;
 pub use encryption::*;
 /// contains the ArtificePeer struct
 pub mod peers;
@@ -296,6 +297,10 @@ impl NetworkStream {
         let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
         let mut stream = self.stream.lock().unwrap();
         stream.write(&enc_data)
+    }
+    pub async fn async_send(&mut self, buf: &[u8]) -> std::io::Result<usize>{
+        
+        Ok(0)
     }
 }
 /// the in execution host struct built from AritificeConfig
