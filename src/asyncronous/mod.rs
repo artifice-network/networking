@@ -123,11 +123,14 @@ impl Stream for AsyncHost {
         let priv_key = self.priv_key.clone();
         match &mut self.listener {
             Some(listener) => {
+                println!("before fut");
                 let mut fut = Box::pin(async {
                     match listener.accept().await {
                         //Poll::Ready(res) => {
                         Ok((mut stream, _addr)) => {
+                            println!("accepted");
                             let mut buffer: [u8; 65535] = [0; 65535];
+                            //std::thread::sleep(std::time::Duration::from_millis(100));
                             let mut data_len = match stream.read(&mut buffer).await {
                                 Ok(data_len) => data_len,
                                 Err(e) => return Some(Err(NetworkError::from(e))),
@@ -138,6 +141,7 @@ impl Stream for AsyncHost {
                                     Err(e) => return Some(Err(NetworkError::from(e))),
                                 };
                             }
+                            println!("about to dec data");
                             let dec_data =
                                 match rsa_decrypt(&priv_key, &buffer[0..data_len], data_len) {
                                     Ok(data_len) => data_len,
@@ -233,7 +237,7 @@ impl AsyncHost {
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data)?;
-        stream.write_all(&enc_data).await?;
+        stream.write(&enc_data).await?;
         Ok(AsyncStream::new(stream, self.priv_key.clone(), peer))
     }
 }
