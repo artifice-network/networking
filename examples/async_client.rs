@@ -1,7 +1,8 @@
-use networking::{syncronous::SyncHost, ArtificeConfig, ArtificePeer};
+use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
 use std::fs::File;
 use std::io::Read;
-fn main() {
+#[tokio::main]
+async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
     config_file.read_to_string(&mut conf_vec).unwrap();
@@ -12,15 +13,16 @@ fn main() {
     let string = String::from_utf8(invec).unwrap();
     // println!("invec: {}", invec);
     let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
-    let host = SyncHost::client_only(&config).unwrap();
-    let mut stream = host.connect(peer).unwrap();
+    let host = AsyncHost::client_only(&config).await.unwrap();
+    let mut stream = host.connect(peer).await.unwrap();
     let mut buffer = Vec::new();
     println!("about to read from sream");
     println!(
         "got {} bytes from server",
-        stream.recv(&mut buffer).unwrap()
+        stream.recv(&mut buffer).await.unwrap()
     );
     println!("read from stream");
     let string = String::from_utf8(buffer).unwrap();
     println!("got message: {} from server", string);
+    Ok(())
 }
