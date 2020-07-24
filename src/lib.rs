@@ -1,62 +1,5 @@
 /*!
-## Async client
-```
-use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
-use std::fs::File;
-use std::io::Read;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let mut config_file = File::open("host.json").unwrap();
-    let mut conf_vec = String::new();
-    config_file.read_to_string(&mut conf_vec).unwrap();
-    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
-    let mut file = File::open("peer.json").unwrap();
-    let mut invec = Vec::new();
-    file.read_to_end(&mut invec).unwrap();
-    let string = String::from_utf8(invec).unwrap();
-    // println!("invec: {}", invec);
-    let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
-    let host = AsyncHost::client_only(&config).await.unwrap();
-    let mut stream = host.connect(peer).await.unwrap();
-    let mut buffer = Vec::new();
-    println!("about to read from sream");
-    println!(
-        "got {} bytes from server",
-        stream.recv(&mut buffer).await.unwrap()
-    );
-    println!("read from stream");
-    let string = String::from_utf8(buffer).unwrap();
-    println!("got message: {} from server", string);
-    Ok(())
-}
-
-```
-## Async Server
-```
-use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
-use std::fs::File;
-use std::io::Read;
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    // currently not functioning
-    let mut config_file = File::open("host.json").unwrap();
-    let mut conf_vec = String::new();
-    config_file.read_to_string(&mut conf_vec).unwrap();
-    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
-    let mut host = AsyncHost::from_host_config(&config).await.unwrap();
-    let mut file = File::open("peer.json").unwrap();
-    let mut invec = String::new();
-    file.read_to_string(&mut invec).unwrap();
-    let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
-    while let Some(Ok(mut stream)) = host.incoming()?.await {
-        // make sure you got a connection from the correct peer
-        assert_eq!(peer, *stream.peer());
-        println!("sending message hello world");
-        stream.send(b"hello world").await.unwrap();
-    }
-    Ok(())
-}
-
+for async examples see <a href="https://crates.io/crates/networking">crates.io</a>
 
 ```
 ## Sync Client
@@ -94,31 +37,28 @@ fn main() {
 
 ## Sync Server
 ```
-use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
+use networking::{syncronous::SyncHost, ArtificeConfig, ArtificePeer, ArtificeStream};
 use std::fs::File;
-use std::io::{Read};
+use std::io::Read;
 fn main() {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
     config_file.read_to_string(&mut conf_vec).unwrap();
     let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
-    let host = ArtificeHost::from_host_data(&config).unwrap();
+    let host = SyncHost::from_host_data(&config).unwrap();
     let mut file = File::open("peer.json").unwrap();
     let mut invec = String::new();
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
-        let mut stream = netstream.unwrap();
+        let mut stream = netstream.unwrap().verify(&peer).unwrap();
         println!("about to write to stream");
         stream
             .send(&"hello world".to_string().into_bytes())
             .unwrap();
-        // do something with the stream example:
-        if *stream.peer() == peer {
-            // correct peer
-        }
     }
 }
+
 
 ```
 */
@@ -274,6 +214,7 @@ pub trait ArtificeStream {
     fn socket_addr(&self) -> SocketAddr;
     fn pubkey(&self) -> RSAPublicKey;
     fn peer(&self) -> &ArtificePeer;
+    fn header(&self) -> Header;
 }
 pub trait ArtificeHost {
     fn begin_broadcast(socket_addr: SocketAddr) -> std::io::Result<Sender<bool>> {
@@ -297,6 +238,9 @@ pub struct ConnectionRequest<T: ArtificeStream>{
     stream: T,
 }
 impl<T: ArtificeStream> ConnectionRequest<T>{
+    pub fn new(stream: T) -> Self{
+        Self {stream}
+    }
     /// used to ensure only known peers are allow to connect
     pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError>{
         if list.verify_peer(&self.stream.peer()) {

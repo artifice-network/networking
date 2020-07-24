@@ -2,7 +2,7 @@ use crate::encryption::*;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
-use crate::{ArtificeConfig, Header, ArtificeStream};
+use crate::{ArtificeConfig, Header, ArtificeStream, ConnectionRequest};
 pub use encryption::*;
 use std::net::SocketAddr;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
@@ -45,6 +45,9 @@ impl ArtificeStream for SyncStream {
     }
     fn socket_addr(&self) -> SocketAddr{
         self.remote_addr
+    }
+    fn header(&self) -> Header{
+        self.header.clone()
     }
 }
 impl SyncStream{
@@ -142,7 +145,7 @@ pub struct SyncHost {
     stop_broadcast: Option<Sender<bool>>,
 }
 impl std::iter::Iterator for SyncHost {
-    type Item = std::io::Result<SyncStream>;
+    type Item = std::io::Result<ConnectionRequest<SyncStream>>;
     fn next(&mut self) -> Option<Self::Item> {
         match &self.listener {
             Some(listener) => match listener.incoming().next() {
@@ -164,7 +167,7 @@ impl std::iter::Iterator for SyncHost {
                         };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer, addr)))
+                        Some(Ok(ConnectionRequest::new(SyncStream::new(stream, self.priv_key.clone(), peer, addr))))
                     }
                     Err(e) => Some(Err(e)),
                 },

@@ -1,7 +1,7 @@
 use crate::encryption::{BigNum, PubKeyPair};
 use crate::syncronous::encryption::{rsa_decrypt, rsa_encrypt};
 use crate::ArtificeConfig;
-use crate::ArtificeHost;
+use crate::{ArtificeHost, ConnectionRequest};
 use crate::{error::NetworkError, ArtificePeer, Header, ArtificeStream};
 use futures::{
     future::Future,
@@ -50,6 +50,9 @@ impl ArtificeStream for AsyncStream {
     }
     fn addr(&self) -> IpAddr{
         self.remote_addr.ip()
+    }
+    fn header(&self) -> Header{
+        self.header.clone()
     }
 }
 impl AsyncStream{
@@ -206,7 +209,7 @@ impl<'a> Incoming<'a> {
     }
 }
 impl<'a> Stream for Incoming<'a> {
-    type Item = Result<AsyncStream, NetworkError>;
+    type Item = Result<ConnectionRequest<AsyncStream>, NetworkError>;
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         match self.listener.poll_accept(ctx) {
             Poll::Ready(stream) => {
@@ -235,7 +238,7 @@ impl<'a> Stream for Incoming<'a> {
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
-                        Poll::Ready(Some(Ok(AsyncStream::new(strm, self.priv_key.clone(), peer, addr))))
+                        Poll::Ready(Some(Ok(ConnectionRequest::new(AsyncStream::new(strm, self.priv_key.clone(), peer, addr)))))
                     }
                     Err(e) => return Poll::Ready(Some(Err(NetworkError::IOError(e)))),
                 }
@@ -245,7 +248,7 @@ impl<'a> Stream for Incoming<'a> {
     }
 }
 impl<'a> Future for Incoming<'a> {
-    type Output = Option<Result<AsyncStream, NetworkError>>;
+    type Output = Option<Result<ConnectionRequest<AsyncStream>, NetworkError>>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output>{
         Stream::poll_next(self, ctx)
     }

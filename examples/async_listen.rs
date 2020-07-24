@@ -13,9 +13,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut invec = String::new();
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
-    while let Some(Ok(mut stream)) = host.incoming()?.await {
+    while let Some(Ok(strm)) = host.incoming()?.await {
+        let mut stream = strm.verify(&peer)?;
         // make sure you got a connection from the correct peer
-        assert_eq!(peer, *stream.peer());
         println!("sending message hello world");
         stream.send(b"hello world").await.unwrap();
     }

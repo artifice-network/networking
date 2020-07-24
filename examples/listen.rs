@@ -12,14 +12,10 @@ fn main() {
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     for netstream in host {
-        let mut stream = netstream.unwrap();
+        let mut stream = netstream.unwrap().verify(&peer).unwrap();
         println!("about to write to stream");
         stream
             .send(&"hello world".to_string().into_bytes())
             .unwrap();
-        // do something with the stream example:
-        if *stream.peer() == peer {
-            // correct peer
-        }
     }
 }
