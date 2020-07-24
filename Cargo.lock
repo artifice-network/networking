@@ -407,7 +407,7 @@ dependencies = [
 
 [[package]]
 name = "networking"
-version = "0.1.3"
+version = "0.1.4"
 dependencies = [
  "futures",
  "num-bigint-dig",
