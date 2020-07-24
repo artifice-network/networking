@@ -2,9 +2,9 @@
 ### Purpose
 the point of this crate is to provide networking support between peers on MAC, Linux, and Windows it will also act as the artifice server
 
-## 
-future implementations include async read/write, as well as async compression
+## Version details
 
+this version adds support for both async client, and async server implementations
 ## Example usage
 
 it would be better to use a management crate but these example would technically work
