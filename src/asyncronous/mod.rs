@@ -7,20 +7,22 @@ use futures::{
     future::Future,
     task::{Context, Poll},
 };
+use std::net::{SocketAddr, IpAddr};
 use std::pin::Pin;
 use tokio::io::AsyncRead;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::sync::mpsc::Sender;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::{net::TcpListener, net::TcpStream};
+use tokio::{net::TcpListener, net::TcpStream, stream::Stream};
 /// stream object for writing and reading on the network
 pub struct AsyncStream {
     header: Header,
     stream: TcpStream,
     priv_key: RSAPrivateKey,
+    remote_addr: SocketAddr,
 }
 impl AsyncStream {
-    pub fn new(stream: TcpStream, priv_key: RSAPrivateKey, peer: ArtificePeer) -> Self {
+    pub fn new(stream: TcpStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
@@ -33,6 +35,7 @@ impl AsyncStream {
             header,
             stream,
             priv_key,
+            remote_addr,
         }
     }
     pub fn peer(&self) -> &ArtificePeer {
@@ -40,6 +43,12 @@ impl AsyncStream {
     }
     pub fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
+    }
+    pub fn socket_addr(&self) -> SocketAddr {
+        self.remote_addr
+    }
+    pub fn addr(&self) -> IpAddr{
+        self.remote_addr.ip()
     }
     pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
@@ -82,7 +91,6 @@ impl AsyncStream {
     }
     /// send data to the peer
     pub async fn send(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
-        println!("buf: {:?}", buf);
         let key = self.peer().pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e())?;
         let mut buffer = Vec::new();
@@ -173,7 +181,8 @@ impl AsyncHost {
         let data = serde_json::to_string(&peer)?.into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data)?;
         stream.write(&enc_data).await?;
-        Ok(AsyncStream::new(stream, self.priv_key.clone(), peer))
+        let addr = peer.socket_addr();
+        Ok(AsyncStream::new(stream, self.priv_key.clone(), peer, addr))
     }
     pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
         match &mut self.listener {
@@ -193,53 +202,49 @@ impl<'a> Incoming<'a> {
         Self { listener, priv_key }
     }
 }
-impl<'a> Future for Incoming<'a> {
-    type Output = Result<AsyncStream, NetworkError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+impl<'a> Stream for Incoming<'a> {
+    type Item = Result<AsyncStream, NetworkError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         match self.listener.poll_accept(ctx) {
-            //Poll::Ready(res) => {
             Poll::Ready(stream) => {
                 match stream {
-                    Ok((mut strm, _addr)) => {
-                        println!("accepted");
+                    Ok((mut strm, addr)) => {
                         let mut buffer: [u8; 65535] = [0; 65535];
-                        //std::thread::sleep(std::time::Duration::from_millis(100));
-                        /*let mut data_len = match AsyncRead::poll_read(stream, ctx, &mut buffer){
-                            Poll::Ready(Ok(data_len)) => data_len,
-                            Poll::Ready(Err(e)) => return Poll::Ready(Err(NetworkError::from(e))),
-                            Poll::Pending => 0,
-                        };*/
                         let mut data_len = 0;
                         let mut bstream = Box::pin(&mut strm);
-                        println!("raed from stream");
                         while data_len == 0 {
                             let stream = Pin::as_mut(&mut bstream);
                             data_len = match AsyncRead::poll_read(stream, ctx, &mut buffer) {
                                 Poll::Ready(Ok(data_len)) => data_len,
-                                Poll::Ready(Err(e)) => return Poll::Ready(Err(NetworkError::from(e))),
+                                Poll::Ready(Err(e)) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                                 Poll::Pending => continue,
                             };
                         }
-                        println!("about to dec data");
                         let dec_data = match rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len) {
                             Ok(data_len) => data_len,
-                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
                             Ok(data_len) => data_len,
-                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         }) {
                             Ok(data_len) => data_len,
-                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
-                        Poll::Ready(Ok(AsyncStream::new(strm, self.priv_key.clone(), peer)))
+                        Poll::Ready(Some(Ok(AsyncStream::new(strm, self.priv_key.clone(), peer, addr))))
                     }
-                    Err(e) => return Poll::Ready(Err(NetworkError::IOError(e))),
+                    Err(e) => return Poll::Ready(Some(Err(NetworkError::IOError(e)))),
                 }
             },
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+impl<'a> Future for Incoming<'a> {
+    type Output = Option<Result<AsyncStream, NetworkError>>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output>{
+        Stream::poll_next(self, ctx)
     }
 }
 impl ArtificeHost for AsyncHost {

@@ -36,7 +36,6 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
 use std::fs::File;
 use std::io::Read;
-use tokio::stream::StreamExt;
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     // currently not functioning
@@ -49,17 +48,15 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut invec = String::new();
     file.read_to_string(&mut invec).unwrap();
     let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
-    println!("peer created");
-    /*while let Some(netstream) = host.next().await {
-        println!("stream created");
-        let mut stream = netstream.unwrap();
+    while let Some(Ok(mut stream)) = host.incoming()?.await {
+        // make sure you got a connection from the correct peer
+        assert_eq!(peer, *stream.peer());
+        println!("sending message hello world");
         stream.send(b"hello world").await.unwrap();
-    }*/
-    let mut stream = host.incoming().await.unwrap();
-    println!("stream created");
-    stream.send(b"hello world").await.unwrap();
+    }
     Ok(())
 }
+
 
 ```
 ## Sync Client
