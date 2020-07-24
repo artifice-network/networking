@@ -1,6 +1,6 @@
 # RSA based peer to peer networking
 ### Purpose
-the purpose of this network is to provide secured RSA based networking between devices. it also aims to prevent main in the middle attacks by encrypting pre-shared keys that are sent in each packet. by doing this, even if a hacker has a public key, they will be unable to feed false information to either of the peers.
+the purpose of this network is to provide secured RSA based networking between devices. it also aims to prevent man in the middle attacks by encrypting pre-shared keys that are sent in each packet. by doing this, even if a hacker has a public key, they will be unable to feed false information to either of the peers.
 
 ## Version details
 
@@ -57,4 +57,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 ## Sync
 
-for sync examples see docs
+for sync examples see <a href="https://docs.rs/networking/0.1.4/networking">docs</a>
