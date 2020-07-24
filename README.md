@@ -1,7 +1,9 @@
 # Networking for the Aritice Network
 ### Purpose
-the point of this crate is to provide networking support between peers on MAC, Linux, and Windows it will also act as the artifice server
+the purpose of this network is to provide secured RSA based networking between devices.
 
+### implementation
+this crate provides a system of identifying devices by RSA key, and by a shared key that is a randomly generated string of 50 ascii complient chars
 ## Version details
 
 this version adds support for both async client, and async server implementations
