@@ -20,7 +20,9 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = netstream.unwrap();
         stream.send(b"hello world").await.unwrap();
     }*/
-    let stream = host.await.unwrap();
-    println!("stream created");
+    for mut stream in host.incoming()?.await {
+        println!("stream created");
+        stream.send(b"hello world").await.unwrap();
+    }
     Ok(())
 }

@@ -7,11 +7,11 @@ use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::pin::Pin;
+use tokio::io::AsyncRead;
+use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::sync::mpsc::Sender;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::stream::Stream;
 use tokio::{net::TcpListener, net::TcpStream};
 /// stream object for writing and reading on the network
 pub struct AsyncStream {
@@ -105,71 +105,6 @@ pub struct AsyncHost {
     stop_broadcast: Option<Sender<bool>>,
     listener: Option<TcpListener>,
 }
-impl Future for AsyncHost {
-    type Output = Result<AsyncStream, NetworkError>;
-    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
-        match self.poll_next(ctx) {
-            Poll::Ready(res) => match res {
-                Some(val) => Poll::Ready(val),
-                None => Poll::Pending,
-            },
-            Poll::Pending => Poll::Pending,
-        }
-    }
-}
-impl Stream for AsyncHost {
-    type Item = Result<AsyncStream, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ct: &mut Context) -> Poll<Option<Self::Item>> {
-        let priv_key = self.priv_key.clone();
-        match &mut self.listener {
-            Some(listener) => {
-                println!("before fut");
-                let mut fut = Box::pin(async {
-                    match listener.accept().await {
-                        //Poll::Ready(res) => {
-                        Ok((mut stream, _addr)) => {
-                            println!("accepted");
-                            let mut buffer: [u8; 65535] = [0; 65535];
-                            //std::thread::sleep(std::time::Duration::from_millis(100));
-                            let mut data_len = match stream.read(&mut buffer).await {
-                                Ok(data_len) => data_len,
-                                Err(e) => return Some(Err(NetworkError::from(e))),
-                            };
-                            while data_len == 0 {
-                                data_len = match stream.read(&mut buffer).await {
-                                    Ok(data_len) => data_len,
-                                    Err(e) => return Some(Err(NetworkError::from(e))),
-                                };
-                            }
-                            println!("about to dec data");
-                            let dec_data =
-                                match rsa_decrypt(&priv_key, &buffer[0..data_len], data_len) {
-                                    Ok(data_len) => data_len,
-                                    Err(e) => return Some(Err(NetworkError::from(e))),
-                                };
-                            let peer =
-                                match serde_json::from_str(&match String::from_utf8(dec_data) {
-                                    Ok(data_len) => data_len,
-                                    Err(e) => return Some(Err(NetworkError::from(e))),
-                                }) {
-                                    Ok(data_len) => data_len,
-                                    Err(e) => return Some(Err(NetworkError::from(e))),
-                                };
-                            //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
-                            Some(Ok(AsyncStream::new(stream, priv_key, peer)))
-                        }
-                        Err(e) => return Some(Err(NetworkError::IOError(e))),
-                    }
-                });
-                let exe = fut.as_mut();
-                exe.poll(ct)
-            }
-            None => Poll::Ready(Some(Err(NetworkError::UnSet(
-                "tcp listener unset".to_string(),
-            )))),
-        }
-    }
-}
 impl AsyncHost {
     pub async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
@@ -239,6 +174,72 @@ impl AsyncHost {
         let enc_data = rsa_encrypt(&public_key, &data)?;
         stream.write(&enc_data).await?;
         Ok(AsyncStream::new(stream, self.priv_key.clone(), peer))
+    }
+    pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
+        match &mut self.listener {
+            Some(listener) => {
+                Ok(Incoming::new(listener, self.priv_key.clone()))
+            }
+            None => Err(NetworkError::UnSet("client only".to_string())),
+        }
+    }
+}
+pub struct Incoming<'a> {
+    listener: &'a mut TcpListener,
+    priv_key: RSAPrivateKey,
+}
+impl<'a> Incoming<'a> {
+    pub fn new(listener: &'a mut TcpListener, priv_key: RSAPrivateKey) -> Incoming<'_> {
+        Self { listener, priv_key }
+    }
+}
+impl<'a> Future for Incoming<'a> {
+    type Output = Result<AsyncStream, NetworkError>;
+    fn poll(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        match self.listener.poll_accept(ctx) {
+            //Poll::Ready(res) => {
+            Poll::Ready(stream) => {
+                match stream {
+                    Ok((mut strm, _addr)) => {
+                        println!("accepted");
+                        let mut buffer: [u8; 65535] = [0; 65535];
+                        //std::thread::sleep(std::time::Duration::from_millis(100));
+                        /*let mut data_len = match AsyncRead::poll_read(stream, ctx, &mut buffer){
+                            Poll::Ready(Ok(data_len)) => data_len,
+                            Poll::Ready(Err(e)) => return Poll::Ready(Err(NetworkError::from(e))),
+                            Poll::Pending => 0,
+                        };*/
+                        let mut data_len = 0;
+                        let mut bstream = Box::pin(&mut strm);
+                        println!("raed from stream");
+                        while data_len == 0 {
+                            let stream = Pin::as_mut(&mut bstream);
+                            data_len = match AsyncRead::poll_read(stream, ctx, &mut buffer) {
+                                Poll::Ready(Ok(data_len)) => data_len,
+                                Poll::Ready(Err(e)) => return Poll::Ready(Err(NetworkError::from(e))),
+                                Poll::Pending => continue,
+                            };
+                        }
+                        println!("about to dec data");
+                        let dec_data = match rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len) {
+                            Ok(data_len) => data_len,
+                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                        };
+                        let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
+                            Ok(data_len) => data_len,
+                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                        }) {
+                            Ok(data_len) => data_len,
+                            Err(e) => return Poll::Ready(Err(NetworkError::from(e))),
+                        };
+                        //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
+                        Poll::Ready(Ok(AsyncStream::new(strm, self.priv_key.clone(), peer)))
+                    }
+                    Err(e) => return Poll::Ready(Err(NetworkError::IOError(e))),
+                }
+            },
+            Poll::Pending => Poll::Pending,
+        }
     }
 }
 impl ArtificeHost for AsyncHost {

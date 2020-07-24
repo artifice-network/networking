@@ -1,6 +1,7 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 use crate::encryption::PubKeyPair;
+use crate::random_string;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Layer3SocketAddr {
@@ -61,7 +62,36 @@ pub fn back_and_forth() {
     let newipaddr = layer3addr.as_ipaddr();
     assert_eq!(ipv6addr, newipaddr);
 }
-
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+pub struct RemotePeer {
+    global_peer_hash: String,
+    addr: Layer3SocketAddr,
+    routable: bool,
+    pubkey: PubKeyPair,
+}
+impl RemotePeer {
+    pub fn generate(pubkey: PubKeyPair, addr: Layer3SocketAddr, routable: bool) -> Self {
+        let global_peer_hash = random_string(50);
+        Self {
+            global_peer_hash,
+            addr,
+            routable,
+            pubkey,
+        }
+    }
+    pub fn global_peer_hash(&self) -> String {
+        self.global_peer_hash.clone()
+    }
+    pub fn addr(&self) -> Layer3SocketAddr {
+        self.addr.clone()
+    }
+    pub fn pubkey(&self) -> PubKeyPair {
+        self.pubkey.clone()
+    }
+    pub fn routable(&self) -> bool {
+        self.routable
+    }
+}
 /// this is a peer that represents a (theoretically) remote computer, this struct provides an attempt to verify the peer by holding a text string that only this particular host, and one host have access to
 /// this is done in conjunction with public key authentication, as well as remote_user auth on an already encrypted channel so only those with permission can exercise their permissions
 /// side noote permissions and peers operate on white list rather then blacklist for the sake of safety.
