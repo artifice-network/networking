@@ -2,8 +2,9 @@ use crate::encryption::*;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
-use crate::{ArtificeConfig, Header};
+use crate::{ArtificeConfig, Header, ArtificeStream};
 pub use encryption::*;
+use std::net::SocketAddr;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::{
     io::{Read, Write},
@@ -16,9 +17,11 @@ pub struct SyncStream {
     header: Header,
     stream: Arc<Mutex<TcpStream>>,
     priv_key: RSAPrivateKey,
+    remote_addr: SocketAddr,
 }
-impl SyncStream {
-    pub fn new(stream: TcpStream, priv_key: RSAPrivateKey, peer: ArtificePeer) -> Self {
+impl ArtificeStream for SyncStream {
+    type NetStream = TcpStream;
+    fn new(stream: Self::NetStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
@@ -31,14 +34,20 @@ impl SyncStream {
             header,
             stream: Arc::new(Mutex::new(stream)),
             priv_key,
+            remote_addr,
         }
     }
-    pub fn peer(&self) -> &ArtificePeer {
+    fn peer(&self) -> &ArtificePeer {
         self.header.peer()
     }
-    pub fn pubkey(&self) -> RSAPublicKey {
+    fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
     }
+    fn socket_addr(&self) -> SocketAddr{
+        self.remote_addr
+    }
+}
+impl SyncStream{
     /// implented in place of std::io::Read, because reading to empty vec fails
     pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
         let mut buffer: [u8; 65535] = [0; 65535];
@@ -74,7 +83,7 @@ impl SyncStream {
         if header != self.header {
             return Err(std::io::Error::new(
                 std::io::ErrorKind::PermissionDenied,
-                "headers are different",
+                "potential man in the middle attempt",
             ));
         }
         // add data not part of the header from the first packet to the greater vector
@@ -148,18 +157,14 @@ impl std::iter::Iterator for SyncHost {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
                         let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
-                            .expect("decryption failed"); /* {
-                                                              Ok(data) => data,
-                                                              Err(_e) => {
-                                                                  return Some(Err(std::io::Error::new(
-                                                                      std::io::ErrorKind::PermissionDenied,
-                                                                      "unauthorized connection",
-                                                                  )))
-                                                              }
-                                                          };*/
+                            .expect("decryption failed");
+                        let addr = match stream.peer_addr() {
+                            Ok(addr) => addr,
+                            Err(e) => return Some(Err(e)),
+                        };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
+                        Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer, addr)))
                     }
                     Err(e) => Some(Err(e)),
                 },
@@ -209,7 +214,11 @@ impl SyncHost {
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data).unwrap();
         stream.write_all(&enc_data)?;
-        Ok(SyncStream::new(stream, self.priv_key.clone(), peer))
+        let addr = match stream.peer_addr() {
+            Ok(addr) => addr,
+            Err(e) => return Err(e),
+        };
+        Ok(SyncStream::new(stream, self.priv_key.clone(), peer, addr))
     }
     /// designed only for testing but may be used for non global peers
     pub fn client_only(config: &ArtificeConfig) -> std::io::Result<Self> {

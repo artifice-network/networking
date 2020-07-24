@@ -137,9 +137,10 @@ pub mod peers;
 pub mod query;
 pub mod syncronous;
 use crate::encryption::PubKeyPair;
+use crate::error::NetworkError;
 pub use peers::*;
-use rsa::RSAPublicKey;
-use std::net::SocketAddr;
+use rsa::{RSAPublicKey, RSAPrivateKey};
+use std::net::{SocketAddr, IpAddr};
 use std::{
     net::UdpSocket,
     sync::mpsc::{channel, RecvTimeoutError, Sender},
@@ -211,6 +212,7 @@ pub struct Header {
     peer: ArtificePeer,
     pubkey: PubKeyPair,
     packet_len: usize,
+    new_connection: bool,
 }
 impl PartialEq for Header {
     fn eq(&self, other: &Self) -> bool {
@@ -223,6 +225,15 @@ impl Header {
             peer,
             pubkey,
             packet_len: 0,
+            new_connection: false,
+        }
+    }
+    pub fn new_connection(peer: ArtificePeer, pubkey: PubKeyPair) -> Self{
+        Self{
+            peer,
+            pubkey,
+            packet_len: 0,
+            new_connection: true,
         }
     }
     pub fn peer(&self) -> &ArtificePeer {
@@ -254,7 +265,16 @@ impl StreamHeader {
     }
 }
 /// trait used to implement common features between async and sync implementations of networking
-pub trait ArtificeStream {}
+pub trait ArtificeStream {
+    type NetStream;
+    fn new(stream: Self::NetStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self;
+    fn addr(&self) -> IpAddr{
+        self.socket_addr().ip()
+    }
+    fn socket_addr(&self) -> SocketAddr;
+    fn pubkey(&self) -> RSAPublicKey;
+    fn peer(&self) -> &ArtificePeer;
+}
 pub trait ArtificeHost {
     fn begin_broadcast(socket_addr: SocketAddr) -> std::io::Result<Sender<bool>> {
         let (sender, recv) = channel();
@@ -272,4 +292,22 @@ pub trait ArtificeHost {
         Ok(sender)
     }
     fn stop_broadcasting(&self);
+}
+pub struct ConnectionRequest<T: ArtificeStream>{
+    stream: T,
+}
+impl<T: ArtificeStream> ConnectionRequest<T>{
+    /// used to ensure only known peers are allow to connect
+    pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError>{
+        if list.verify_peer(&self.stream.peer()) {
+            Ok(self.stream)
+        }else{
+            Err(NetworkError::ConnectionDenied("verification of peer failed".to_string()))
+        }
+    }
+    /// this function allows unauthorized peers to connect to this device
+    /// should only be used if a pair request is being run
+    pub unsafe fn unverify(self) -> T{
+        self.stream
+    }
 }

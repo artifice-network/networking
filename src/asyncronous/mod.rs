@@ -2,7 +2,7 @@ use crate::encryption::{BigNum, PubKeyPair};
 use crate::syncronous::encryption::{rsa_decrypt, rsa_encrypt};
 use crate::ArtificeConfig;
 use crate::ArtificeHost;
-use crate::{error::NetworkError, ArtificePeer, Header};
+use crate::{error::NetworkError, ArtificePeer, Header, ArtificeStream};
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -21,8 +21,9 @@ pub struct AsyncStream {
     priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
-impl AsyncStream {
-    pub fn new(stream: TcpStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self {
+impl ArtificeStream for AsyncStream {
+    type NetStream = TcpStream;
+    fn new(stream: Self::NetStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
@@ -38,18 +39,20 @@ impl AsyncStream {
             remote_addr,
         }
     }
-    pub fn peer(&self) -> &ArtificePeer {
+    fn peer(&self) -> &ArtificePeer {
         self.header.peer()
     }
-    pub fn pubkey(&self) -> RSAPublicKey {
+    fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
     }
-    pub fn socket_addr(&self) -> SocketAddr {
+    fn socket_addr(&self) -> SocketAddr {
         self.remote_addr
     }
-    pub fn addr(&self) -> IpAddr{
+    fn addr(&self) -> IpAddr{
         self.remote_addr.ip()
     }
+}
+impl AsyncStream{
     pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut buf = Vec::new();

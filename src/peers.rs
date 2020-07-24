@@ -152,6 +152,11 @@ impl ArtificePeer {
         self.addr.as_socket_addr()
     }
 }
+impl PeerList for ArtificePeer{
+    fn verify_peer(&self, peer: &ArtificePeer) -> bool{
+        *self == *peer
+    }
+}
 pub trait PeerList {
-    fn get_peer(global_hash: &str) -> Option<ArtificePeer>;
+    fn verify_peer(&self, peer: &ArtificePeer) -> bool;
 }
