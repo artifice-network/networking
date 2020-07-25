@@ -2,10 +2,10 @@ use crate::encryption::*;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
-use crate::{ArtificeConfig, Header, ArtificeStream, ConnectionRequest};
+use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
 pub use encryption::*;
-use std::net::SocketAddr;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -21,7 +21,12 @@ pub struct SyncStream {
 }
 impl ArtificeStream for SyncStream {
     type NetStream = TcpStream;
-    fn new(stream: Self::NetStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self {
+    fn new(
+        stream: Self::NetStream,
+        priv_key: RSAPrivateKey,
+        peer: ArtificePeer,
+        remote_addr: SocketAddr,
+    ) -> Self {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
@@ -43,14 +48,14 @@ impl ArtificeStream for SyncStream {
     fn pubkey(&self) -> RSAPublicKey {
         self.header.pubkey()
     }
-    fn socket_addr(&self) -> SocketAddr{
+    fn socket_addr(&self) -> SocketAddr {
         self.remote_addr
     }
-    fn header(&self) -> Header{
+    fn header(&self) -> Header {
         self.header.clone()
     }
 }
-impl SyncStream{
+impl SyncStream {
     /// implented in place of std::io::Read, because reading to empty vec fails
     pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
         let mut buffer: [u8; 65535] = [0; 65535];
@@ -167,7 +172,12 @@ impl std::iter::Iterator for SyncHost {
                         };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(ConnectionRequest::new(SyncStream::new(stream, self.priv_key.clone(), peer, addr))))
+                        Some(Ok(ConnectionRequest::new(SyncStream::new(
+                            stream,
+                            self.priv_key.clone(),
+                            peer,
+                            addr,
+                        ))))
                     }
                     Err(e) => Some(Err(e)),
                 },

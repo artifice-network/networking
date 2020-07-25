@@ -16,9 +16,9 @@ impl fmt::Display for NetworkError {
             NetworkError::IOError(err) => format!("{}", err),
             NetworkError::RSAError(err) => format!("{}", err),
             NetworkError::SerdeError(err) => format!("{}", err),
-            NetworkError::UnSet(e) => format!("{}", e),
+            NetworkError::UnSet(e) => e.to_string(),
             NetworkError::UTF8(e) => format!("{}", e),
-            NetworkError::ConnectionDenied(e) => format!("{}", e),
+            NetworkError::ConnectionDenied(e) => e.to_string(),
         };
         write!(f, "{}", msg)
     }

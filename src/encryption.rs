@@ -42,7 +42,10 @@ impl BigNum {
             value: biguint.to_bytes_be(),
         }
     }
-    pub fn into_inner(&self) -> BigUint {
+    pub fn to_inner(&self) -> BigUint {
+        BigUint::from_bytes_be(&self.value)
+    }
+    pub fn into_inner(self) -> BigUint {
         BigUint::from_bytes_be(&self.value)
     }
 }

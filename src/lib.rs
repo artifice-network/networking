@@ -1,14 +1,13 @@
 /*!
 for async examples see <a href="https://crates.io/crates/networking">crates.io</a>
 
-```
 ## Sync Client
 
 ```
 use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
 use std::fs::File;
 use std::io::Read;
-fn main() {
+
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
     config_file.read_to_string(&mut conf_vec).unwrap();
@@ -31,7 +30,6 @@ fn main() {
     let string = String::from_utf8(buffer).unwrap();
     println!("got message: {} from server", string);
     //stream.write(&buffer).unwrap();
-}
 
 ```
 
@@ -40,7 +38,7 @@ fn main() {
 use networking::{syncronous::SyncHost, ArtificeConfig, ArtificePeer, ArtificeStream};
 use std::fs::File;
 use std::io::Read;
-fn main() {
+
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
     config_file.read_to_string(&mut conf_vec).unwrap();
@@ -57,7 +55,6 @@ fn main() {
             .send(&"hello world".to_string().into_bytes())
             .unwrap();
     }
-}
 
 
 ```
@@ -79,8 +76,8 @@ pub mod syncronous;
 use crate::encryption::PubKeyPair;
 use crate::error::NetworkError;
 pub use peers::*;
-use rsa::{RSAPublicKey, RSAPrivateKey};
-use std::net::{SocketAddr, IpAddr};
+use rsa::{RSAPrivateKey, RSAPublicKey};
+use std::net::{IpAddr, SocketAddr};
 use std::{
     net::UdpSocket,
     sync::mpsc::{channel, RecvTimeoutError, Sender},
@@ -168,8 +165,8 @@ impl Header {
             new_connection: false,
         }
     }
-    pub fn new_connection(peer: ArtificePeer, pubkey: PubKeyPair) -> Self{
-        Self{
+    pub fn new_connection(peer: ArtificePeer, pubkey: PubKeyPair) -> Self {
+        Self {
             peer,
             pubkey,
             packet_len: 0,
@@ -207,8 +204,13 @@ impl StreamHeader {
 /// trait used to implement common features between async and sync implementations of networking
 pub trait ArtificeStream {
     type NetStream;
-    fn new(stream: Self::NetStream, priv_key: RSAPrivateKey, peer: ArtificePeer, remote_addr: SocketAddr) -> Self;
-    fn addr(&self) -> IpAddr{
+    fn new(
+        stream: Self::NetStream,
+        priv_key: RSAPrivateKey,
+        peer: ArtificePeer,
+        remote_addr: SocketAddr,
+    ) -> Self;
+    fn addr(&self) -> IpAddr {
         self.socket_addr().ip()
     }
     fn socket_addr(&self) -> SocketAddr;
@@ -234,24 +236,27 @@ pub trait ArtificeHost {
     }
     fn stop_broadcasting(&self);
 }
-pub struct ConnectionRequest<T: ArtificeStream>{
+pub struct ConnectionRequest<T: ArtificeStream> {
     stream: T,
 }
-impl<T: ArtificeStream> ConnectionRequest<T>{
-    pub fn new(stream: T) -> Self{
-        Self {stream}
+impl<T: ArtificeStream> ConnectionRequest<T> {
+    pub fn new(stream: T) -> Self {
+        Self { stream }
     }
     /// used to ensure only known peers are allow to connect
-    pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError>{
+    pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError> {
         if list.verify_peer(&self.stream.peer()) {
             Ok(self.stream)
-        }else{
-            Err(NetworkError::ConnectionDenied("verification of peer failed".to_string()))
+        } else {
+            Err(NetworkError::ConnectionDenied(
+                "verification of peer failed".to_string(),
+            ))
         }
     }
+    /// # Safety
     /// this function allows unauthorized peers to connect to this device
     /// should only be used if a pair request is being run
-    pub unsafe fn unverify(self) -> T{
+    pub unsafe fn unverify(self) -> T {
         self.stream
     }
 }

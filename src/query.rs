@@ -4,18 +4,21 @@ use std::fmt::Debug;
 use std::mem::MaybeUninit;
 use std::ops::{Deref, DerefMut};
 use std::pin::Pin;
-use std::sync::{Arc, Mutex};
+use std::sync::{
+    atomic::{AtomicBool, Ordering},
+    Arc, Mutex,
+};
 use std::task::{Context, Poll};
 #[derive(Clone)]
 pub struct Request<T: Clone + Debug> {
     data: Arc<Mutex<MaybeUninit<T>>>,
-    data_ready: Arc<Mutex<bool>>,
+    data_ready: Arc<AtomicBool>,
 }
 impl<Req: Clone + Debug> std::future::Future for Request<Req> {
     type Output = Req;
     fn poll(self: Pin<&mut Self>, _ctx: &mut Context) -> Poll<Self::Output> {
-        let ready_state = self.data_ready.lock().unwrap();
-        if *ready_state.deref() {
+        let ready_state = self.data_ready.load(Ordering::Relaxed);
+        if ready_state {
             let data = self.data.lock().unwrap();
             return Poll::Ready(unsafe { data.deref().get_ref().clone() });
         }
@@ -25,7 +28,7 @@ impl<Req: Clone + Debug> std::future::Future for Request<Req> {
 impl<Req: Clone + Debug> Request<Req> {
     pub fn new() -> Self {
         let data = Arc::new(Mutex::new(MaybeUninit::uninit()));
-        let data_ready = Arc::new(Mutex::new(false));
+        let data_ready = Arc::new(AtomicBool::new(false));
         Self { data, data_ready }
     }
     pub fn send(&self, data: Req) {
@@ -47,8 +50,8 @@ impl<T: Clone + Debug> std::iter::Iterator for Request<T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
         unsafe {
-            let ready_state = self.data_ready.lock().unwrap();
-            if *ready_state.deref() {
+            let ready_state = self.data_ready.load(Ordering::Relaxed);
+            if ready_state {
                 let data = self.data.lock().unwrap();
                 return Some(data.borrow().get_ref().clone());
             }
@@ -58,8 +61,8 @@ impl<T: Clone + Debug> std::iter::Iterator for Request<T> {
 }
 impl<T: Clone + Debug> fmt::Debug for Request<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ready_state = self.data_ready.lock().unwrap();
-        let ready = *ready_state.deref();
+        let ready_state = self.data_ready.load(Ordering::Relaxed);
+        let ready = ready_state;
         let data = unsafe {
             if ready {
                 let data = self.data.lock().unwrap();
@@ -77,12 +80,12 @@ impl<T: Clone + Debug> fmt::Debug for Request<T> {
 #[derive(Clone)]
 pub struct Response<T: Clone + Debug> {
     data: Arc<Mutex<MaybeUninit<T>>>,
-    data_ready: Arc<Mutex<bool>>,
+    data_ready: Arc<AtomicBool>,
 }
 impl<Rsp: Clone + Debug> Response<Rsp> {
     pub fn new() -> Self {
         let data = Arc::new(Mutex::new(MaybeUninit::uninit()));
-        let data_ready = Arc::new(Mutex::new(false));
+        let data_ready = Arc::new(AtomicBool::new(false));
         Self { data, data_ready }
     }
     pub fn send(&self, data: Rsp) {
@@ -98,8 +101,8 @@ impl<Rsp: Clone + Debug> Response<Rsp> {
 impl<T: Clone + Debug> std::iter::Iterator for Response<T> {
     type Item = T;
     fn next(&mut self) -> Option<Self::Item> {
-        let ready_state = self.data_ready.lock().unwrap();
-        if *ready_state.deref() {
+        let ready_state = self.data_ready.load(Ordering::Relaxed);
+        if ready_state {
             let data = self.data.lock().unwrap();
             return Some(unsafe { data.deref().get_ref().clone() });
         }
@@ -108,8 +111,8 @@ impl<T: Clone + Debug> std::iter::Iterator for Response<T> {
 }
 impl<T: Clone + Debug> fmt::Debug for Response<T> {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        let ready_state = self.data_ready.lock().unwrap();
-        let ready = *ready_state.deref();
+        let ready_state = self.data_ready.load(Ordering::Relaxed);
+        let ready = ready_state;
         let data = unsafe {
             if ready {
                 let data = self.data.lock().unwrap();
@@ -132,8 +135,8 @@ impl<Rsp: Clone + Debug> Default for Response<Rsp> {
 impl<Rsp: Clone + Debug> std::future::Future for Response<Rsp> {
     type Output = Rsp;
     fn poll(self: Pin<&mut Self>, _ctx: &mut Context) -> Poll<Self::Output> {
-        let ready_state = self.data_ready.lock().unwrap();
-        if *ready_state.deref() {
+        let ready_state = self.data_ready.load(Ordering::Relaxed);
+        if ready_state {
             let data = self.data.lock().unwrap();
             return Poll::Ready(unsafe { data.deref().get_ref().clone() });
         }

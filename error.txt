@@ -1,0 +1,30 @@
+warning: needless `fn main` in doctest
+  --> src/lib.rs:7:1
+   |
+7  | / use networking::{ArtificeConfig, ArtificeHost, ArtificePeer};
+8  | | use std::fs::File;
+9  | | use std::io::Read;
+10 | | fn main() {
+...  |
+62 | | ```
+63 | | */
+   | |__^
+   |
+   = note: `#[warn(clippy::needless_doctest_main)]` on by default
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_doctest_main
+
+warning: needless `fn main` in doctest
+  --> src/lib.rs:39:1
+   |
+39 | / use networking::{syncronous::SyncHost, ArtificeConfig, ArtificePeer, ArtificeStream};
+40 | | use std::fs::File;
+41 | | use std::io::Read;
+42 | | fn main() {
+...  |
+62 | | ```
+63 | | */
+   | |__^
+   |
+   = help: for further information visit https://rust-lang.github.io/rust-clippy/master/index.html#needless_doctest_main
+
+    Finished dev [unoptimized + debuginfo] target(s) in 0.38s
