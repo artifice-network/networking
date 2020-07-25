@@ -7,6 +7,8 @@ use futures::{
     future::Future,
     task::{Context, Poll},
 };
+pub mod encryption;
+use encryption::{aes_encrypt, aes_decrypt};
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -69,7 +71,7 @@ impl AsyncStream {
         while data_len == 0 {
             data_len = self.stream.read(&mut buffer).await?;
         }
-        let dec_data = rsa_decrypt(&self.priv_key, &buffer, data_len)?;
+        let dec_data = aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
         let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
         let header_str = String::from_utf8(dec_data[2..header_len + 2].to_vec())?;
         //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
@@ -93,8 +95,8 @@ impl AsyncStream {
             while temp_len == 0 {
                 temp_len = self.stream.read(&mut buffer).await?;
             }
+            let dec_buffer = aes_decrypt(&self.priv_key, &buffer[data_len..data_len+temp_len])?;
             data_len += temp_len;
-            let dec_buffer = rsa_decrypt(&self.priv_key, &buffer, temp_len)?;
             buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
         }
@@ -113,7 +115,7 @@ impl AsyncStream {
         buffer.push(header_len[1]);
         buffer.extend_from_slice(bytes.as_slice());
         buffer.extend_from_slice(buf);
-        let enc_data = rsa_encrypt(&public_key, &buffer)?;
+        let enc_data = aes_encrypt(&public_key, &buffer)?;
         Ok(self.stream.write(&enc_data).await?)
     }
 }
@@ -191,7 +193,7 @@ impl AsyncHost {
         let key = peer.pubkeypair();
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
-        let enc_data = rsa_encrypt(&public_key, &data)?;
+        let enc_data = aes_encrypt(&public_key, &data)?;
         stream.write(&enc_data).await?;
         let addr = peer.socket_addr();
         Ok(AsyncStream::new(stream, self.priv_key.clone(), peer, addr))
@@ -233,7 +235,7 @@ impl<'a> Stream for Incoming<'a> {
                             };
                         }
                         let dec_data =
-                            match rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len) {
+                            match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
                                 Ok(data_len) => data_len,
                                 Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                             };

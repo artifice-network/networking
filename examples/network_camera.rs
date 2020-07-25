@@ -1,13 +1,10 @@
+use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
 use opencv::{core, imgcodecs::*, prelude::*, videoio};
-use std::io::{Read};
-use std::fs::File;
-use networking::{
-    asyncronous::{AsyncHost},
-    ArtificeConfig, ArtificePeer,
-};
 use std::error::Error;
 use std::fmt;
-use tokio::runtime::{Runtime, Handle};
+use std::fs::File;
+use std::io::Read;
+use tokio::runtime::{Handle, Runtime};
 #[derive(Debug)]
 pub enum ExampleError {
     OpencvError(opencv::Error),
@@ -31,8 +28,7 @@ impl From<networking::error::NetworkError> for ExampleError {
     }
 }
 
-async fn run(_handle: Handle) -> Result<(), ExampleError>{
-    
+async fn run(_handle: Handle) -> Result<(), ExampleError> {
     let mut config_file = File::open("host.json").unwrap();
     let mut conf_vec = String::new();
     config_file.read_to_string(&mut conf_vec).unwrap();

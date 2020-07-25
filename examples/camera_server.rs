@@ -2,14 +2,10 @@ use networking::{
     asyncronous::{AsyncHost, AsyncStream},
     ArtificeConfig, ArtificePeer,
 };
-use opencv::{
-    core, highgui,
-    imgcodecs::imdecode,
-    prelude::{VectorTrait},
-};
+use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
 use std::error::Error;
 use std::fs::File;
-use std::io::{Read};
+use std::io::Read;
 use tokio::runtime::{Handle, Runtime};
 
 fn main() {
