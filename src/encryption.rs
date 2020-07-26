@@ -2,7 +2,7 @@ use crypto::digest::Digest;
 use crypto::sha3::Sha3;
 use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
-use rsa::{PublicKeyParts, RSAPrivateKey};
+use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
 
 use rand::distributions::Alphanumeric;
@@ -49,6 +49,11 @@ impl BigNum {
         BigUint::from_bytes_be(&self.value)
     }
 }
+impl From<&BigUint> for BigNum {
+    fn from(num: &BigUint) -> Self{
+        Self {value: num.to_bytes_be()}
+    }
+}
 
 impl fmt::Display for BigNum {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -58,11 +63,11 @@ impl fmt::Display for BigNum {
 /// this struct is used within ArtificePeer, that is transmittted over then network so as to provide the public key of the peer to the hsot
 /// like BigNum, this is an abstraction of RSAPublicKey that can be serialized using the serde crate
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
-pub struct PubKeyPair {
+pub struct PubKeyComp {
     n: BigNum,
     e: BigNum,
 }
-impl PubKeyPair {
+impl PubKeyComp {
     pub fn from_parts(n: BigNum, e: BigNum) -> Self {
         Self { n, e }
     }
@@ -73,7 +78,17 @@ impl PubKeyPair {
         self.e.clone().into_inner()
     }
 }
-/// private key version of PubKeyPair
+impl From<&RSAPublicKey> for PubKeyComp {
+    fn from(public_key: &RSAPublicKey) -> Self{
+        Self::from_parts(BigNum::from(public_key.n()), BigNum::from(public_key.e()))
+    }
+}
+impl From<&RSAPrivateKey> for PubKeyComp {
+    fn from(private_key: &RSAPrivateKey) -> Self{
+        Self::from(&RSAPublicKey::from(private_key))
+    }
+}
+/// private key version of PubKeyComp
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PrivKeyComp {
     n: BigNum,
@@ -112,5 +127,19 @@ impl PrivKeyComp {
         let n = BigNum::from_biguint(private_key.n().clone());
         let e = BigNum::from_biguint(private_key.e().clone());
         Ok(Self { n, e, d, primes })
+    }
+}
+impl From<&RSAPrivateKey> for PrivKeyComp {
+    fn from(key: &RSAPrivateKey) -> Self {
+        let primes = key
+            .primes()
+            .iter()
+            .map(|p| BigNum::from_biguint(p.clone()))
+            .collect();
+        let d = BigNum::from_biguint(key.d().clone());
+        let public_key = RSAPublicKey::from(key);
+        let n = BigNum::from_biguint(public_key.n().clone());
+        let e = BigNum::from_biguint(public_key.e().clone());
+        Self { n, e, d, primes }
     }
 }

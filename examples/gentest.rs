@@ -1,5 +1,5 @@
 use networking::{
-    encryption::PubKeyPair, random_string, ArtificeConfig, ArtificePeer, Layer3Addr,
+    encryption::PubKeyComp, random_string, ArtificeConfig, ArtificePeer, Layer3Addr,
     Layer3SocketAddr,
 };
 use std::fs::File;
@@ -13,7 +13,7 @@ fn main() {
     let config: ArtificeConfig = ArtificeConfig::generate(addr.clone());
 
     let priv_key = config.host_data().private_key();
-    let pubkey = PubKeyPair::from_parts(priv_key.n(), priv_key.e());
+    let pubkey = PubKeyComp::from_parts(priv_key.n(), priv_key.e());
 
     let peer: ArtificePeer = ArtificePeer::new(peer_hash, global_peer_hash, peer_addr, pubkey);
     println!("saving files");

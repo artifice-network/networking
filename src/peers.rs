@@ -1,6 +1,6 @@
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-use crate::encryption::PubKeyPair;
+use crate::encryption::PubKeyComp;
 use crate::random_string;
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
@@ -67,10 +67,10 @@ pub struct RemotePeer {
     global_peer_hash: String,
     addr: Layer3SocketAddr,
     routable: bool,
-    pubkey: PubKeyPair,
+    pubkey: PubKeyComp,
 }
 impl RemotePeer {
-    pub fn generate(pubkey: PubKeyPair, addr: Layer3SocketAddr, routable: bool) -> Self {
+    pub fn generate(pubkey: PubKeyComp, addr: Layer3SocketAddr, routable: bool) -> Self {
         let global_peer_hash = random_string(50);
         Self {
             global_peer_hash,
@@ -85,7 +85,7 @@ impl RemotePeer {
     pub fn addr(&self) -> Layer3SocketAddr {
         self.addr
     }
-    pub fn pubkey(&self) -> PubKeyPair {
+    pub fn pubkey(&self) -> PubKeyComp {
         self.pubkey.clone()
     }
     pub fn routable(&self) -> bool {
@@ -100,7 +100,7 @@ pub struct ArtificePeer {
     global_peer_hash: String,
     addr: Layer3SocketAddr,
     routable: bool,
-    pubkey: PubKeyPair,
+    pubkey: PubKeyComp,
     /// this is only for the pair between this server and that peer
     peer_hash: String,
 }
@@ -118,10 +118,10 @@ impl ArtificePeer {
     /// (used to prevent the danger of pubkey theft as each pairkey only exists between one particular peer and another)
     /// remote user provides further verification of identity, and is used in junction with peer verification to control access rights
     pub fn new(
-        peer_hash: String,
         global_peer_hash: String,
+        peer_hash: String,
         addr: Layer3SocketAddr,
-        pubkey: PubKeyPair,
+        pubkey: PubKeyComp,
     ) -> Self {
         let routable = addr.as_ipaddr().is_global();
         Self {
@@ -140,7 +140,7 @@ impl ArtificePeer {
         self.addr.as_ipaddr()
     }
     /// makes public key pair available to the client program, for encryption purposes
-    pub fn pubkeypair(&self) -> PubKeyPair {
+    pub fn pubkeycomp(&self) -> PubKeyComp {
         self.pubkey.clone()
     }
     /// makes key pair hash available to the client program to verify the remote peer

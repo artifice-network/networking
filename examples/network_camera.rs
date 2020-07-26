@@ -57,7 +57,7 @@ async fn run(_handle: Handle) -> Result<(), ExampleError> {
         let mut outbuf: core::Vector<u8> = core::Vector::with_capacity(640 * 480 * 3);
         if frame.size()?.width > 0 {
             imencode(".jpg", &frame, &mut outbuf, &params)?;
-            println!("about to send");
+            println!("about to send, {} bytes", outbuf.len());
             socket.send(&outbuf.to_vec()).await?;
         }
     }

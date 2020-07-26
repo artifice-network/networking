@@ -30,7 +30,7 @@ impl ArtificeStream for SyncStream {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
-            PubKeyPair::from_parts(
+            PubKeyComp::from_parts(
                 BigNum::from_biguint(pubkey.n().clone()),
                 BigNum::from_biguint(pubkey.e().clone()),
             ),
@@ -128,7 +128,7 @@ impl SyncStream {
     /// send data to the peer
     pub fn send(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         println!("buf: {:?}", buf);
-        let key = self.peer().pubkeypair();
+        let key = self.peer().pubkeycomp();
         let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
         let mut buffer = Vec::new();
         self.header.set_len(buf.len());
@@ -222,7 +222,7 @@ impl SyncHost {
     pub fn connect(&self, peer: ArtificePeer) -> std::io::Result<SyncStream> {
         let mut stream = TcpStream::connect(peer.socket_addr())?;
         // encrypt the peer before sending
-        let key = peer.pubkeypair();
+        let key = peer.pubkeycomp();
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data).unwrap();

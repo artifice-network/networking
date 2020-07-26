@@ -1,4 +1,4 @@
-# RSA based peer to peer networking
+# RSA + AES based peer to peer networking
 ### Purpose
 the purpose of this network is to provide secured RSA based networking between devices. it also aims to prevent man in the middle attacks by encrypting pre-shared keys that are sent in each packet. by doing this, even if a hacker has a public key, they will be unable to feed false information to either of the peers.
 

@@ -1,3 +1,4 @@
+use std::array::TryFromSliceError;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf8Error;
@@ -8,6 +9,7 @@ pub enum NetworkError {
     SerdeError(serde_json::error::Error),
     UTF8(FromUtf8Error),
     ConnectionDenied(String),
+    FromSlice(TryFromSliceError),
     UnSet(String),
 }
 impl fmt::Display for NetworkError {
@@ -19,6 +21,7 @@ impl fmt::Display for NetworkError {
             NetworkError::UnSet(e) => e.to_string(),
             NetworkError::UTF8(e) => format!("{}", e),
             NetworkError::ConnectionDenied(e) => e.to_string(),
+            NetworkError::FromSlice(e) => format!("{}", e),
         };
         write!(f, "{}", msg)
     }
@@ -42,5 +45,10 @@ impl From<serde_json::error::Error> for NetworkError {
 impl From<FromUtf8Error> for NetworkError {
     fn from(error: FromUtf8Error) -> NetworkError {
         NetworkError::UTF8(error)
+    }
+}
+impl From<TryFromSliceError> for NetworkError {
+    fn from(error: TryFromSliceError) -> Self {
+        NetworkError::FromSlice(error)
     }
 }

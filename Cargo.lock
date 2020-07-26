@@ -535,6 +535,7 @@ name = "networking"
 version = "0.1.5"
 dependencies = [
  "futures",
+ "lazy_static",
  "num-bigint-dig",
  "opencv",
  "rand 0.7.3",

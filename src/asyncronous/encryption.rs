@@ -7,11 +7,8 @@ use crypto::{
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 use std::error::Error;
-pub fn aes_encrypt(
-    pub_key: &RSAPublicKey,
-    input: &[u8],
-) -> Result<Vec<u8>, NetworkError> {
-    assert!(input.len() < (65535));
+pub fn aes_encrypt(pub_key: &RSAPublicKey, input: &[u8]) -> Result<Vec<u8>, NetworkError> {
+    assert!(input.len() < (65536));
     let mut output = Vec::new();
     let mut rng = OsRng;
     let key = random_string(16);
@@ -32,7 +29,7 @@ pub fn aes_encrypt(
     output.append(&mut enc_key);
     output.push(rem);
     while index < data.len() {
-        let mut read_data: [u8;128] = [0;128];
+        let mut read_data: [u8; 128] = [0; 128];
         encryptor.encrypt_block_x8(&data[index..index + 128], &mut read_data[..]);
         output.extend_from_slice(&read_data);
         index = index + 128;
@@ -42,9 +39,7 @@ pub fn aes_encrypt(
 }
 #[test]
 fn encrypt_test() -> Result<(), Box<dyn Error>> {
-    let mut rng = OsRng;
-    let bits = 2048;
-    let private_key = RSAPrivateKey::new(&mut rng, bits).expect("failed to generate a key");
+    let private_key = crate::get_private_key();
     let public_key = RSAPublicKey::from(&private_key);
     let indata = random_string(43235).into_bytes();
     //let mut outvec = Vec::new();
@@ -52,14 +47,11 @@ fn encrypt_test() -> Result<(), Box<dyn Error>> {
     let outvec = aes_encrypt(&public_key, &indata).unwrap();
     //let mut dec_buf = Vec::new();
     let dec_buf = aes_decrypt(&private_key, &outvec).unwrap();
-    assert_eq!(indata,dec_buf);
+    assert_eq!(indata, dec_buf);
     Ok(())
 }
-pub fn aes_decrypt(
-    priv_key: &RSAPrivateKey,
-    input: &[u8],
-) -> Result<Vec<u8>, NetworkError> {
-    assert!(input.len() < (65535));
+pub fn aes_decrypt(priv_key: &RSAPrivateKey, input: &[u8]) -> Result<Vec<u8>, NetworkError> {
+    assert!(input.len() < (65536));
     let mut output = Vec::new();
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     let key = priv_key.decrypt(padding, &input[0..256])?;
@@ -67,7 +59,7 @@ pub fn aes_decrypt(
     let mut index = 257;
     let decryptor = AesSafe128DecryptorX8::new(&key);
     while index < input.len() {
-        let mut read_data: [u8;128] = [0;128];
+        let mut read_data: [u8; 128] = [0; 128];
         decryptor.decrypt_block_x8(&input[index..index + 128], &mut read_data[..]);
         output.extend_from_slice(&read_data);
         index = index + 128;

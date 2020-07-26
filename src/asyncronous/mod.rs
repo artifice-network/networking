@@ -1,14 +1,14 @@
-use crate::encryption::{BigNum, PubKeyPair};
+use crate::encryption::{BigNum, PubKeyComp};
 use crate::syncronous::encryption::{rsa_decrypt, rsa_encrypt};
 use crate::ArtificeConfig;
-use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header};
+use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
 use futures::{
     future::Future,
     task::{Context, Poll},
 };
 pub mod encryption;
-use encryption::{aes_encrypt, aes_decrypt};
+use encryption::{aes_decrypt, aes_encrypt};
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -35,7 +35,7 @@ impl ArtificeStream for AsyncStream {
         let pubkey = RSAPublicKey::from(&priv_key);
         let header = Header::new(
             peer,
-            PubKeyPair::from_parts(
+            PubKeyComp::from_parts(
                 BigNum::from_biguint(pubkey.n().clone()),
                 BigNum::from_biguint(pubkey.e().clone()),
             ),
@@ -71,11 +71,13 @@ impl AsyncStream {
         while data_len == 0 {
             data_len = self.stream.read(&mut buffer).await?;
         }
+        println!("recv data: {}", data_len);
         let dec_data = aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
         let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
         let header_str = String::from_utf8(dec_data[2..header_len + 2].to_vec())?;
         //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
-        let header: Header = serde_json::from_str(&header_str)?;
+        let header: StreamHeader = serde_json::from_str(&header_str)?;
+        println!("header: {:?}", header);
         // verify that a man in the middle attack hasn't occured
         // let (header, header_len) = get_headers(&self.priv_key, &dec_data, data_len)?;
         if header != self.header {
@@ -84,7 +86,7 @@ impl AsyncStream {
             ));
         }
         // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() + header_len < 65535 {
+        if header.packet_len() + header_len < 65536 {
             buf.extend_from_slice(&dec_data[header_len + 2..header_len + header.packet_len() + 2]);
         } else {
             buf.extend_from_slice(&dec_data[header_len..65535]);
@@ -95,7 +97,7 @@ impl AsyncStream {
             while temp_len == 0 {
                 temp_len = self.stream.read(&mut buffer).await?;
             }
-            let dec_buffer = aes_decrypt(&self.priv_key, &buffer[data_len..data_len+temp_len])?;
+            let dec_buffer = aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
             data_len += temp_len;
             buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
@@ -105,17 +107,18 @@ impl AsyncStream {
     }
     /// send data to the peer
     pub async fn send(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
-        let key = self.peer().pubkeypair();
+        let key = self.peer().pubkeycomp();
         let public_key = RSAPublicKey::new(key.n(), key.e())?;
         let mut buffer = Vec::new();
         self.header.set_len(buf.len());
-        let bytes = serde_json::to_string(&self.header)?.into_bytes();
+        let bytes = serde_json::to_string(&self.header.stream_header())?.into_bytes();
         let header_len: [u8; 2] = (bytes.len() as u16).to_be_bytes();
         buffer.push(header_len[0]);
         buffer.push(header_len[1]);
         buffer.extend_from_slice(bytes.as_slice());
         buffer.extend_from_slice(buf);
         let enc_data = aes_encrypt(&public_key, &buffer)?;
+        println!("write len: {}", enc_data.len());
         Ok(self.stream.write(&enc_data).await?)
     }
 }
@@ -190,7 +193,7 @@ impl AsyncHost {
     pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
-        let key = peer.pubkeypair();
+        let key = peer.pubkeycomp();
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let enc_data = aes_encrypt(&public_key, &data)?;
@@ -234,11 +237,10 @@ impl<'a> Stream for Incoming<'a> {
                                 Poll::Pending => continue,
                             };
                         }
-                        let dec_data =
-                            match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
-                                Ok(data_len) => data_len,
-                                Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-                            };
+                        let dec_data = match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
+                            Ok(data_len) => data_len,
+                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
+                        };
                         let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
                             Ok(data_len) => data_len,
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
