@@ -8,6 +8,7 @@ pub struct Layer3SocketAddr {
     addr: Layer3Addr,
     port: u16,
 }
+/// includes port information and is used to bind to an address
 impl Layer3SocketAddr {
     pub fn from_layer3_addr(addr: Layer3Addr, port: u16) -> Self {
         Self { addr, port }
@@ -62,6 +63,8 @@ pub fn back_and_forth() {
     let newipaddr = layer3addr.as_ipaddr();
     assert_eq!(ipv6addr, newipaddr);
 }
+/// used as a precursor to artifice peer, principly it is used to store information about a given peer
+/// that is intended to be publicly available information
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct RemotePeer {
     global_peer_hash: String,
@@ -70,6 +73,14 @@ pub struct RemotePeer {
     pubkey: PubKeyComp,
 }
 impl RemotePeer {
+    pub fn new(global_hash: &str, pubkey: PubKeyComp, addr: Layer3SocketAddr, routable: bool) -> Self{
+        Self{
+            global_peer_hash: global_hash.to_string(),
+            pubkey,
+            addr,
+            routable,
+        }
+    }
     pub fn generate(pubkey: PubKeyComp, addr: Layer3SocketAddr, routable: bool) -> Self {
         let global_peer_hash = random_string(50);
         Self {
@@ -157,6 +168,8 @@ impl PeerList for ArtificePeer {
         *self == *peer
     }
 }
+/// used in ConnectionRequests verify method, anything that implements this trait 
+/// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
     fn verify_peer(&self, peer: &ArtificePeer) -> bool;
 }

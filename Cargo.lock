@@ -532,7 +532,7 @@ dependencies = [
 
 [[package]]
 name = "networking"
-version = "0.1.5"
+version = "0.1.6"
 dependencies = [
  "futures",
  "lazy_static",
