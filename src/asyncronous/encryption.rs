@@ -48,7 +48,8 @@ pub fn aes_encrypt(pub_key: &RSAPublicKey, mut header: StreamHeader, input: &[u8
     Ok(output)
 }
 #[test]
-fn encrypt_test() -> Result<(), Box<dyn Error>> {
+fn encrypt_test() {
+    use crate::random_string;
     let stream_header = StreamHeader::new(random_string(50), random_string(50), 0);
     let private_key = crate::get_private_key();
     let public_key = RSAPublicKey::from(&private_key);
@@ -60,7 +61,6 @@ fn encrypt_test() -> Result<(), Box<dyn Error>> {
     let (dec_buf, _) = aes_decrypt(&private_key, &outvec).unwrap();
     assert_eq!(indata.len(), dec_buf.len());
     assert_eq!(indata, dec_buf);
-    Ok(())
 }
 pub fn aes_decrypt(priv_key: &RSAPrivateKey, input: &[u8]) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
     assert!(input.len() < (65536));

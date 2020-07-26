@@ -1,6 +1,4 @@
-use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer, ArtificeStream};
-use std::fs::File;
-use std::io::Read;
+use networking::{syncronous::SyncHost, test_config};
 
 fn main() {
     let (peer, config) = test_config();

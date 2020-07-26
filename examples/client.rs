@@ -1,7 +1,4 @@
-use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer};
-use std::fs::File;
-use std::io::Read;
-use std::{thread, time::Duration};
+use networking::{syncronous::SyncHost, test_config};
 
 fn main() {
     // this function is for testing only
