@@ -1,46 +1,16 @@
-use crypto::blowfish::Blowfish;
 use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
 use rand::rngs::OsRng;
+use crate::error::NetworkError;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
-/// usese blowfish symetrical encryption to protect information such as peers, permissions, installed applications, and configs in teh case of a system compromise
-/// the intent is not t ohide this information from the user, rather to protect the network in case of a compromise of a peer
-/// the implementation of this program wide encryption is such that in order for a user to use the network they must provide a decyption key as a password for the network
-pub fn encrypt(key: &[u8], input: &[u8], output_vec: &mut Vec<u8>) {
-    //assert!((4 < key.len() <= 56));
-    let cap = if input.len() % 8 != 0 {
-        input.len() + (8 - (input.len() % 8))
-    } else {
-        input.len()
-    };
-    let mut encypt_buffer = Vec::with_capacity(cap);
-    encypt_buffer.extend_from_slice(input);
-    if input.len() != cap {
-        for _ in input.len()..cap {
-            encypt_buffer.push(0);
-        }
-    }
-    let blowfish = Blowfish::new(key);
-    let mut index = 0;
-    while index < cap {
-        let mut output: [u8; 8] = [0; 8];
-        blowfish.encrypt_block(&encypt_buffer[index..index + 8], &mut output);
-        index += 8;
-        output_vec.extend_from_slice(&output);
-    }
+/// sequencially encrypts, rather then encrypting 8 blocks at a time
+pub fn asym_aes_encrypt(pubkey: &RSAPublicKey, input: &[u8]) -> Result<Vec<u8>, NetworkError>{
+    unimplemented!()
 }
-/// uses blowfish symetrical decryption so that the program is able to access the installation information for artifice
-pub fn decrypt(key: &[u8], input: &[u8], output_vec: &mut Vec<u8>) {
-    assert!(input.len() % 8 == 0);
-    let blowfish = Blowfish::new(key);
-    let cap = input.len();
-    let mut index = 0;
-    while index < cap {
-        let mut output: [u8; 8] = [0; 8];
-        blowfish.decrypt_block(&input[index..index + 8], &mut output);
-        index += 8;
-        output_vec.extend_from_slice(&output);
-    }
+/// sequencially decrypts, rather than decrypting 8 blocks at a time
+pub fn asym_aes_decrypt(privkey: &RSAPrivateKey, input: &[u8]) -> Result<Vec<u8>, NetworkError>{
+    unimplemented!()
 }
+/// encrypts purely using rsa
 pub fn rsa_decrypt(
     priv_key: &RSAPrivateKey,
     enc_data: &[u8],
@@ -67,6 +37,7 @@ pub fn rsa_decrypt(
     }
     Ok(dec_data)
 }
+/// encrypts purely using rsa
 pub fn rsa_encrypt(public_key: &RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error> {
     let mut rng = OsRng;
     let mut index = 0;

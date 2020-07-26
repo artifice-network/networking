@@ -1,7 +1,7 @@
-use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-
 use crate::encryption::PubKeyComp;
-use crate::random_string;
+use crate::{error::NetworkError, random_string};
+use rsa::RSAPublicKey;
+use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
 pub struct Layer3SocketAddr {
@@ -73,8 +73,13 @@ pub struct RemotePeer {
     pubkey: PubKeyComp,
 }
 impl RemotePeer {
-    pub fn new(global_hash: &str, pubkey: PubKeyComp, addr: Layer3SocketAddr, routable: bool) -> Self{
-        Self{
+    pub fn new(
+        global_hash: &str,
+        pubkey: PubKeyComp,
+        addr: Layer3SocketAddr,
+        routable: bool,
+    ) -> Self {
+        Self {
             global_peer_hash: global_hash.to_string(),
             pubkey,
             addr,
@@ -96,7 +101,7 @@ impl RemotePeer {
     pub fn addr(&self) -> Layer3SocketAddr {
         self.addr
     }
-    pub fn pubkey(&self) -> PubKeyComp {
+    pub fn pubkeycomp(&self) -> PubKeyComp {
         self.pubkey.clone()
     }
     pub fn routable(&self) -> bool {
@@ -154,6 +159,9 @@ impl ArtificePeer {
     pub fn pubkeycomp(&self) -> PubKeyComp {
         self.pubkey.clone()
     }
+    pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
+        Ok(RSAPublicKey::new(self.pubkey.n(), self.pubkey.e())?)
+    }
     /// makes key pair hash available to the client program to verify the remote peer
     pub fn peer_hash(&self) -> &str {
         &self.peer_hash
@@ -168,7 +176,7 @@ impl PeerList for ArtificePeer {
         *self == *peer
     }
 }
-/// used in ConnectionRequests verify method, anything that implements this trait 
+/// used in ConnectionRequests verify method, anything that implements this trait
 /// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
     fn verify_peer(&self, peer: &ArtificePeer) -> bool;

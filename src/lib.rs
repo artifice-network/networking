@@ -20,7 +20,7 @@ for netstream in host {
 ``` ignore
 use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer};
 use std::{thread, time::Duration};
-    
+
 let (peer, config) = test_config();
 //thread::sleep(Duration::from_millis(200));
 let host = SyncHost::client_only(&config).unwrap();
@@ -48,9 +48,9 @@ pub mod encryption;
 pub mod error;
 pub use encryption::*;
 /// asyncronous implementation of the networking features provided in this crate
-/// 
+///
 /// # Client Example
-/// 
+///
 /// ``` ignore
 /// use networking::{asyncronous::AsyncHost, test_config};
 /// #[tokio::main]
@@ -70,7 +70,7 @@ pub use encryption::*;
 /// ```
 ///
 /// # Server Example
-/// 
+///
 /// ``` ignore
 /// use networking::{asyncronous::AsyncHost, test_config};
 /// #[tokio::main]
@@ -281,9 +281,9 @@ impl PartialEq<Header> for StreamHeader {
     }
 }
 impl Header {
-    pub fn new(peer: ArtificePeer, pubkey: PubKeyComp) -> Self {
+    pub fn new(peer: &ArtificePeer, pubkey: PubKeyComp) -> Self {
         Self {
-            peer,
+            peer: peer.to_owned(),
             pubkey,
             packet_len: 0,
             new_connection: false,
@@ -394,7 +394,7 @@ fn header_to_raw_from_raw() {
 /// certain methods, found in the implementations in this crate
 ///
 /// # methods to include
-/// 
+///
 /// ``` ignore
 /// fn send(&mut self, inbuf: &[u8]) -> Result<usize, Box<dyn Error>>
 /// fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, Box<dyn Error>>
@@ -405,15 +405,18 @@ fn header_to_raw_from_raw() {
 /// <ul>
 /// <li>increased freedom over Write/AsyncWrite and Read/AsyncRead, such as chose of error</li>
 /// <li>vectors are difficult to write to when in the form of a slice, this way methods such as append, and extend_from_slice can be used</li>
-/// </ul> 
+/// </ul>
 pub trait ArtificeStream {
     type NetStream;
+    type Error: std::error::Error;
     fn new(
         stream: Self::NetStream,
         priv_key: RSAPrivateKey,
-        peer: ArtificePeer,
+        peer: &ArtificePeer,
         remote_addr: SocketAddr,
-    ) -> Self;
+    ) -> Result<Self, Self::Error>
+    where
+        Self: std::marker::Sized;
     fn addr(&self) -> IpAddr {
         self.socket_addr().ip()
     }

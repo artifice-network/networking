@@ -1,3 +1,6 @@
+// ===================================================================
+//                                 Dependencies
+// ===================================================================
 use crate::encryption::{BigNum, PubKeyComp};
 use crate::ArtificeConfig;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
@@ -7,7 +10,7 @@ use futures::{
     task::{Context, Poll},
 };
 pub mod encryption;
-use encryption::{aes_decrypt, aes_encrypt};
+use encryption::{asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt};
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
@@ -17,6 +20,10 @@ use tokio::io::AsyncRead;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::sync::mpsc::{channel, Receiver, Sender as AsyncSender};
 use tokio::{net::TcpListener, net::TcpStream, net::UdpSocket, stream::Stream};
+
+// ===============================================================================
+//                                   Async Stream
+// ================================================================================
 /// networking implementation that uses TCP to send information over the network
 #[derive(Debug)]
 pub struct AsyncStream {
@@ -27,13 +34,14 @@ pub struct AsyncStream {
 }
 impl ArtificeStream for AsyncStream {
     type NetStream = TcpStream;
+    type Error = NetworkError;
     fn new(
         stream: Self::NetStream,
         priv_key: RSAPrivateKey,
-        peer: ArtificePeer,
+        peer: &ArtificePeer,
         remote_addr: SocketAddr,
-    ) -> Self {
-        let pubkey = RSAPublicKey::from(&priv_key);
+    ) -> Result<Self, Self::Error> {
+        let pubkey = peer.pubkey()?;
         let header = Header::new(
             peer,
             PubKeyComp::from_parts(
@@ -41,12 +49,12 @@ impl ArtificeStream for AsyncStream {
                 BigNum::from_biguint(pubkey.e().clone()),
             ),
         );
-        Self {
+        Ok(Self {
             header,
             stream,
             priv_key,
             remote_addr,
-        }
+        })
     }
     fn peer(&self) -> &ArtificePeer {
         self.header.peer()
@@ -64,6 +72,9 @@ impl ArtificeStream for AsyncStream {
         self.header.clone()
     }
 }
+// ====================================== ====================================================
+//                                    Impl Async Stream
+// =============================================================================================
 impl AsyncStream {
     pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
@@ -110,13 +121,23 @@ impl AsyncStream {
         Ok(self.stream.write(&enc_data).await?)
     }
 }
-
+// ===================================================================================
+//                                 Async Host
+// ====================================================================================
 /// host object, artifice network implementation of TcpListener
 #[derive(Debug)]
 pub struct AsyncHost {
     priv_key: RSAPrivateKey,
     stop_broadcast: Option<Sender<bool>>,
     listener: Option<TcpListener>,
+}
+impl ArtificeHost for AsyncHost {
+    fn stop_broadcasting(&self) {
+        match &self.stop_broadcast {
+            Some(sender) => sender.send(false).unwrap(),
+            None => (),
+        }
+    }
 }
 impl AsyncHost {
     pub async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
@@ -188,7 +209,12 @@ impl AsyncHost {
         let enc_data = aes_encrypt(&public_key, stream_header, &data)?;
         stream.write(&enc_data).await?;
         let addr = peer.socket_addr();
-        Ok(AsyncStream::new(stream, self.priv_key.clone(), peer, addr))
+        Ok(AsyncStream::new(
+            stream,
+            self.priv_key.clone(),
+            &peer,
+            addr,
+        )?)
     }
     pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
         match &mut self.listener {
@@ -197,6 +223,9 @@ impl AsyncHost {
         }
     }
 }
+// ======================================================================================
+//                                       Incoming
+// ======================================================================================
 pub struct Incoming<'a> {
     listener: &'a mut TcpListener,
     priv_key: RSAPrivateKey,
@@ -239,12 +268,12 @@ impl<'a> Stream for Incoming<'a> {
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
-                        Poll::Ready(Some(Ok(ConnectionRequest::new(AsyncStream::new(
-                            strm,
-                            self.priv_key.clone(),
-                            peer,
-                            addr,
-                        )))))
+                        Poll::Ready(Some(Ok(ConnectionRequest::new(
+                            match AsyncStream::new(strm, self.priv_key.clone(), &peer, addr) {
+                                Ok(stream) => stream,
+                                Err(e) => return Poll::Ready(Some(Err(e))),
+                            },
+                        ))))
                     }
                     Err(e) => Poll::Ready(Some(Err(NetworkError::IOError(e)))),
                 }
@@ -259,25 +288,70 @@ impl<'a> Future for Incoming<'a> {
         Stream::poll_next(self, ctx)
     }
 }
-impl ArtificeHost for AsyncHost {
-    fn stop_broadcasting(&self) {
-        match &self.stop_broadcast {
-            Some(sender) => sender.send(false).unwrap(),
-            None => (),
-        }
-    }
-}
+// ===============================================================================
+//                             Async Paired Socket
+// ===============================================================================
 /// this represents a UDP connection to a peer.
 /// while that may seem oxymoronic, in practice implementing a structure this way allos for a finer grain of
-/// what data transfer methods are nessisary, as this crate implements high security, an increase in efficiency wouldn't rely on 
-/// lack of connection, instead, the connection is maintained, and the efficiency gain comes from the lack of packet ordering, 
+/// what data transfer methods are nessisary, as this crate implements high security, an increase in efficiency wouldn't rely on
+/// lack of connection, instead, the connection is maintained, and the efficiency gain comes from the lack of packet ordering,
 /// and extraneous network transmissions
 pub struct AsyncPairedSocket {
     header: Header,
     priv_key: RSAPrivateKey,
-    sender: Sender<Vec<u8>>,
+    sender: AsyncSender<Result<[u8; 65535], NetworkError>>,
     remote_addr: SocketAddr,
 }
+impl AsyncPairedSocket {}
+impl ArtificeStream for AsyncPairedSocket {
+    type NetStream = (
+        AsyncSender<Result<[u8; 65535], NetworkError>>,
+        Receiver<Result<[u8; 65535], NetworkError>>,
+    );
+    type Error = NetworkError;
+    fn new(
+        (sender, receiver): (
+            AsyncSender<Result<[u8; 65535], NetworkError>>,
+            Receiver<Result<[u8; 65535], NetworkError>>,
+        ),
+        priv_key: RSAPrivateKey,
+        peer: &ArtificePeer,
+        remote_addr: SocketAddr,
+    ) -> Result<Self, Self::Error> {
+        let pubkey = peer.pubkey()?;
+        let header = Header::new(
+            peer,
+            PubKeyComp::from_parts(
+                BigNum::from_biguint(pubkey.n().clone()),
+                BigNum::from_biguint(pubkey.e().clone()),
+            ),
+        );
+        Ok(Self {
+            header,
+            priv_key,
+            sender,
+            remote_addr,
+        })
+    }
+    fn peer(&self) -> &ArtificePeer {
+        self.header.peer()
+    }
+    fn pubkey(&self) -> RSAPublicKey {
+        self.header.pubkey()
+    }
+    fn socket_addr(&self) -> SocketAddr {
+        self.remote_addr
+    }
+    fn addr(&self) -> IpAddr {
+        self.remote_addr.ip()
+    }
+    fn header(&self) -> Header {
+        self.header.clone()
+    }
+}
+// ===================================================================================
+//                             Async Socket Listener
+// ===================================================================================
 /// this structure provides an alternative to TCP Networking, but is not connectionless
 /// while this structure uses an owned UdpSocket for networking, it also maintains a connection through the standard means that this crate provides
 /// this is offered as a way to increase the efficiency of the network of TCP at the cost of a lack of garuntee of packet order
@@ -285,9 +359,9 @@ pub struct AsyncPairedSocket {
 pub struct AsyncSocketListener {
     socket: UdpSocket,
     priv_key: RSAPrivateKey,
-    senders: HashMap<SocketAddr, AsyncSender<Vec<u8>>>,
-    receiver: Receiver<Vec<u8>>,
-    sender: AsyncSender<Vec<u8>>,
+    senders: HashMap<SocketAddr, AsyncSender<[u8; 65535]>>,
+    receiver: Receiver<[u8; 65535]>,
+    sender: AsyncSender<[u8; 65535]>,
 }
 impl AsyncSocketListener {
     pub async fn from_host_data(config: &ArtificeConfig) -> Result<Self, NetworkError> {
@@ -317,10 +391,25 @@ impl AsyncSocketListener {
             sender,
         })
     }
+    pub async fn connect(){}
 }
-impl Stream for AsyncSocketListener {
-    type Item = Result<AsyncPairedSocket, NetworkError>;
-    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
-        Poll::Pending
+/*impl Stream for AsyncSocketListener {
+    type Item = Result<ConnectionRequest<AsyncPairedSocket>, NetworkError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
+        let mut buffer = [0;65535];
+        match self.socket.recv_from(&mut buffer).poll(ctx) {
+            Ok((data_len, addr)) => {
+                match self.senders.get(addr) {
+                    Some(sender) => {
+                        sender.send(buffer).poll(ctx);
+                        Poll::Pending
+                    },
+                    None => {
+                        // initiate connection
+                    }
+                }
+            },
+            Err(e) => Poll::Pending,
+        }
     }
-}
+}*/

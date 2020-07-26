@@ -1,5 +1,6 @@
 use crate::encryption::*;
 use crate::peers::*;
+use crate::error::NetworkError;
 pub mod encryption;
 use crate::ArtificeHost;
 use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
@@ -21,13 +22,14 @@ pub struct SyncStream {
 }
 impl ArtificeStream for SyncStream {
     type NetStream = TcpStream;
+    type Error = NetworkError;
     fn new(
         stream: Self::NetStream,
         priv_key: RSAPrivateKey,
-        peer: ArtificePeer,
+        peer: &ArtificePeer,
         remote_addr: SocketAddr,
-    ) -> Self {
-        let pubkey = RSAPublicKey::from(&priv_key);
+    ) -> Result<Self, Self::Error> {
+        let pubkey = peer.pubkey()?;
         let header = Header::new(
             peer,
             PubKeyComp::from_parts(
@@ -35,12 +37,12 @@ impl ArtificeStream for SyncStream {
                 BigNum::from_biguint(pubkey.e().clone()),
             ),
         );
-        Self {
+        Ok(Self {
             header,
             stream: Arc::new(Mutex::new(stream)),
             priv_key,
             remote_addr,
-        }
+        })
     }
     fn peer(&self) -> &ArtificePeer {
         self.header.peer()
@@ -150,7 +152,7 @@ pub struct SyncHost {
     stop_broadcast: Option<Sender<bool>>,
 }
 impl std::iter::Iterator for SyncHost {
-    type Item = std::io::Result<ConnectionRequest<SyncStream>>;
+    type Item = Result<ConnectionRequest<SyncStream>, NetworkError>;
     fn next(&mut self) -> Option<Self::Item> {
         match &self.listener {
             Some(listener) => match listener.incoming().next() {
@@ -159,34 +161,34 @@ impl std::iter::Iterator for SyncHost {
                         let mut buffer: [u8; 65535] = [0; 65535];
                         let mut data_len = match stream.read(&mut buffer) {
                             Ok(bytes) => bytes,
-                            Err(e) => return Some(Err(e)),
+                            Err(e) => return Some(Err(NetworkError::from(e))),
                         };
                         while data_len == 0 {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
                         let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
                             .expect("decryption failed");
-                        let addr = match stream.peer_addr() {
+                        let addr = match stream.peer_addr(){
                             Ok(addr) => addr,
-                            Err(e) => return Some(Err(e)),
+                            Err(e) => return Some(Err(e.into())),
                         };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(ConnectionRequest::new(SyncStream::new(
+                        Some(Ok(ConnectionRequest::new(match SyncStream::new(
                             stream,
                             self.priv_key.clone(),
-                            peer,
+                            &peer,
                             addr,
-                        ))))
+                        ){
+                            Ok(stream) => stream,
+                            Err(e) => return Some(Err(e.into())),
+                        })))
                     }
-                    Err(e) => Some(Err(e)),
+                    Err(e) => Some(Err(NetworkError::from(e))),
                 },
                 None => None,
             },
-            None => Some(Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "this host is peer only",
-            ))),
+            None => Some(Err(NetworkError::UnSet("this host is outgoing only".to_string()))),
         }
     }
 }
@@ -219,7 +221,7 @@ impl SyncHost {
             listener,
         })
     }
-    pub fn connect(&self, peer: ArtificePeer) -> std::io::Result<SyncStream> {
+    pub fn connect(&self, peer: ArtificePeer) -> Result<SyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr())?;
         // encrypt the peer before sending
         let key = peer.pubkeycomp();
@@ -227,11 +229,8 @@ impl SyncHost {
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data).unwrap();
         stream.write_all(&enc_data)?;
-        let addr = match stream.peer_addr() {
-            Ok(addr) => addr,
-            Err(e) => return Err(e),
-        };
-        Ok(SyncStream::new(stream, self.priv_key.clone(), peer, addr))
+        let addr = stream.peer_addr()?;
+        Ok(SyncStream::new(stream, self.priv_key.clone(), &peer, addr)?)
     }
     /// designed only for testing but may be used for non global peers
     pub fn client_only(config: &ArtificeConfig) -> std::io::Result<Self> {

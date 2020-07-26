@@ -4,10 +4,15 @@ use crypto::{
     aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
     symmetriccipher::{BlockDecryptorX8, BlockEncryptorX8},
 };
+use aes::block_cipher::generic_array::GenericArray;
+use aes::block_cipher::{BlockCipher};
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
+// ==================================================================================
+//                               AES Encryption
+// =================================================================================
 /// uses rsa to encrypt an aes key, that is used to encrypt the main body of the data
-pub fn aes_encrypt(
+pub fn asym_aes_encrypt(
     pub_key: &RSAPublicKey,
     mut header: StreamHeader,
     input: &[u8],
@@ -52,21 +57,10 @@ pub fn aes_encrypt(
     //output.append(&mut outvec);
     Ok(output)
 }
-#[test]
-fn encrypt_test() {
-    use crate::random_string;
-    let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
-    let private_key = crate::get_private_key();
-    let public_key = RSAPublicKey::from(&private_key);
-    let instr = random_string(43235);
-    let indata = instr.clone().into_bytes();
-    //let mut outvec = Vec::new();
-    let outvec = aes_encrypt(&public_key, stream_header, &indata).unwrap();
-    let (dec_buf, _) = aes_decrypt(&private_key, &outvec).unwrap();
-    assert_eq!(indata.len(), dec_buf.len());
-    assert_eq!(indata, dec_buf);
-}
-pub fn aes_decrypt(
+// ===============================================================================
+//                          AES Decryption
+// ================================================================================
+pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
     input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
@@ -89,9 +83,26 @@ pub fn aes_decrypt(
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
     if (data_len - rem as usize) < newlen {
-        let (next_packet, stream_header) = aes_decrypt(priv_key, &input[data_len..input.len()])?;
+        let (next_packet, stream_header) = asym_aes_decrypt(priv_key, &input[data_len..input.len()])?;
         header = stream_header;
         output.extend_from_slice(&next_packet);
     }
     Ok((output, header))
+}
+// =============================================================================
+//                              Tests
+// =============================================================================
+#[test]
+fn encrypt_test() {
+    use crate::random_string;
+    let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
+    let private_key = crate::get_private_key();
+    let public_key = RSAPublicKey::from(&private_key);
+    let instr = random_string(43235);
+    let indata = instr.clone().into_bytes();
+    //let mut outvec = Vec::new();
+    let outvec = aes_encrypt(&public_key, stream_header, &indata).unwrap();
+    let (dec_buf, _) = aes_decrypt(&private_key, &outvec).unwrap();
+    assert_eq!(indata.len(), dec_buf.len());
+    assert_eq!(indata, dec_buf);
 }
