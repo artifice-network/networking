@@ -132,8 +132,8 @@ impl ArtificePeer {
             peer_hash,
         }
     }
-    pub fn global_peer_hash(&self) -> String {
-        self.global_peer_hash.clone()
+    pub fn global_peer_hash(&self) -> &str {
+        &self.global_peer_hash
     }
     // get ipaddr associated with this peer
     pub fn addr(&self) -> IpAddr {
@@ -144,8 +144,8 @@ impl ArtificePeer {
         self.pubkey.clone()
     }
     /// makes key pair hash available to the client program to verify the remote peer
-    pub fn peer_hash(&self) -> String {
-        self.peer_hash.clone()
+    pub fn peer_hash(&self) -> &str {
+        &self.peer_hash
     }
     // includes port
     pub fn socket_addr(&self) -> std::net::SocketAddr {

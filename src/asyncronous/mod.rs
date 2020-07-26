@@ -9,13 +9,15 @@ use futures::{
 pub mod encryption;
 use encryption::{aes_decrypt, aes_encrypt};
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::mpsc::Sender;
 use tokio::io::AsyncRead;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::{net::TcpListener, net::TcpStream, stream::Stream};
-/// stream object for writing and reading on the network
+use tokio::sync::mpsc::{channel, Receiver, Sender as AsyncSender};
+use tokio::{net::TcpListener, net::TcpStream, net::UdpSocket, stream::Stream};
+/// networking implementation that uses TCP to send information over the network
 #[derive(Debug)]
 pub struct AsyncStream {
     header: Header,
@@ -82,13 +84,14 @@ impl AsyncStream {
         } else {
             buf.extend_from_slice(&dec_data[0..65535]);
         }
-        //hadle further packetsheader_len + 
+        //hadle further packetsheader_len +
         while data_len < header.packet_len() {
             let mut temp_len = self.stream.read(&mut buffer).await?;
             while temp_len == 0 {
                 temp_len = self.stream.read(&mut buffer).await?;
             }
-            let (dec_buffer, stream_header) = aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            let (dec_buffer, stream_header) =
+                aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
@@ -182,7 +185,7 @@ impl AsyncHost {
         let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
-        let enc_data = aes_encrypt(&public_key, stream_header,&data)?;
+        let enc_data = aes_encrypt(&public_key, stream_header, &data)?;
         stream.write(&enc_data).await?;
         let addr = peer.socket_addr();
         Ok(AsyncStream::new(stream, self.priv_key.clone(), peer, addr))
@@ -223,7 +226,8 @@ impl<'a> Stream for Incoming<'a> {
                                 Poll::Pending => continue,
                             };
                         }
-                        let (dec_data, _) = match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
+                        let (dec_data, _) = match aes_decrypt(&self.priv_key, &buffer[0..data_len])
+                        {
                             Ok(data_len) => data_len,
                             Err(e) => return Poll::Ready(Some(Err(e))),
                         };
@@ -261,5 +265,62 @@ impl ArtificeHost for AsyncHost {
             Some(sender) => sender.send(false).unwrap(),
             None => (),
         }
+    }
+}
+/// this represents a UDP connection to a peer.
+/// while that may seem oxymoronic, in practice implementing a structure this way allos for a finer grain of
+/// what data transfer methods are nessisary, as this crate implements high security, an increase in efficiency wouldn't rely on 
+/// lack of connection, instead, the connection is maintained, and the efficiency gain comes from the lack of packet ordering, 
+/// and extraneous network transmissions
+pub struct AsyncPairedSocket {
+    header: Header,
+    priv_key: RSAPrivateKey,
+    sender: Sender<Vec<u8>>,
+    remote_addr: SocketAddr,
+}
+/// this structure provides an alternative to TCP Networking, but is not connectionless
+/// while this structure uses an owned UdpSocket for networking, it also maintains a connection through the standard means that this crate provides
+/// this is offered as a way to increase the efficiency of the network of TCP at the cost of a lack of garuntee of packet order
+/// future implementations may implement a system of dropping out dated packets
+pub struct AsyncSocketListener {
+    socket: UdpSocket,
+    priv_key: RSAPrivateKey,
+    senders: HashMap<SocketAddr, AsyncSender<Vec<u8>>>,
+    receiver: Receiver<Vec<u8>>,
+    sender: AsyncSender<Vec<u8>>,
+}
+impl AsyncSocketListener {
+    pub async fn from_host_data(config: &ArtificeConfig) -> Result<Self, NetworkError> {
+        let data = config.host_data();
+        let port = config.port();
+        let address = config.address();
+        let priv_key_comp = data.private_key();
+        let socket_addr = address.to_socket_addr(port);
+        let priv_key = RSAPrivateKey::from_components(
+            priv_key_comp.n().into_inner(),
+            priv_key_comp.e().into_inner(),
+            priv_key_comp.d().into_inner(),
+            priv_key_comp
+                .primes()
+                .into_iter()
+                .map(|v| v.into_inner())
+                .collect(),
+        );
+        let socket = UdpSocket::bind(socket_addr).await?;
+        let (sender, receiver) = channel(200);
+        let senders = HashMap::new();
+        Ok(Self {
+            socket,
+            priv_key,
+            senders,
+            receiver,
+            sender,
+        })
+    }
+}
+impl Stream for AsyncSocketListener {
+    type Item = Result<AsyncPairedSocket, NetworkError>;
+    fn poll_next(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
+        Poll::Pending
     }
 }

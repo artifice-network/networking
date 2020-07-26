@@ -1,12 +1,12 @@
 // this crate is an example of sending a large amount of data through this network
 // in the future it will implement data transmisions with lengths greater then 65535
 use networking::{
-    test_config,
     asyncronous::{AsyncHost, AsyncStream},
+    test_config,
 };
 use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
 use std::error::Error;
-use tokio::runtime::{Runtime};
+use tokio::runtime::Runtime;
 
 fn main() {
     let mut runtime = Runtime::new().unwrap();

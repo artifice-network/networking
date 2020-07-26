@@ -1,5 +1,5 @@
 use crate::error::NetworkError;
-use crate::{StreamHeader};
+use crate::StreamHeader;
 use crypto::{
     aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
     symmetriccipher::{BlockDecryptorX8, BlockEncryptorX8},
@@ -7,7 +7,11 @@ use crypto::{
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 /// uses rsa to encrypt an aes key, that is used to encrypt the main body of the data
-pub fn aes_encrypt(pub_key: &RSAPublicKey, mut header: StreamHeader, input: &[u8]) -> Result<Vec<u8>, NetworkError> {
+pub fn aes_encrypt(
+    pub_key: &RSAPublicKey,
+    mut header: StreamHeader,
+    input: &[u8],
+) -> Result<Vec<u8>, NetworkError> {
     assert!(input.len() < (65536));
     // returned from the function
     let mut output = Vec::new();
@@ -37,7 +41,8 @@ pub fn aes_encrypt(pub_key: &RSAPublicKey, mut header: StreamHeader, input: &[u8
     // use rsa to encrypt the aes key
     let mut enc_key = pub_key.encrypt(&mut rng, padding, &key)?;
     output.append(&mut enc_key);
-    while index < data.len() {
+    let full_len = input.len() + rem as usize;
+    while index < full_len {
         let mut read_data: [u8; 128] = [0; 128];
         // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
         encryptor.encrypt_block_x8(&data[index..index + 128], &mut read_data[..]);
@@ -50,32 +55,33 @@ pub fn aes_encrypt(pub_key: &RSAPublicKey, mut header: StreamHeader, input: &[u8
 #[test]
 fn encrypt_test() {
     use crate::random_string;
-    let stream_header = StreamHeader::new(random_string(50), random_string(50), 0);
+    let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
     let private_key = crate::get_private_key();
     let public_key = RSAPublicKey::from(&private_key);
     let instr = random_string(43235);
     let indata = instr.clone().into_bytes();
     //let mut outvec = Vec::new();
-    let mut runtime = tokio::runtime::Runtime::new().unwrap();
-    let outvec = aes_encrypt(&public_key, stream_header,&indata).unwrap();
+    let outvec = aes_encrypt(&public_key, stream_header, &indata).unwrap();
     let (dec_buf, _) = aes_decrypt(&private_key, &outvec).unwrap();
     assert_eq!(indata.len(), dec_buf.len());
     assert_eq!(indata, dec_buf);
 }
-pub fn aes_decrypt(priv_key: &RSAPrivateKey, input: &[u8]) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
+pub fn aes_decrypt(
+    priv_key: &RSAPrivateKey,
+    input: &[u8],
+) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
     assert!(input.len() < (65536));
     // create output vector
     let mut output = Vec::new();
     // decrypt the StreamHeader
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
-    let key = priv_key.decrypt(padding, &input[0..256])?;
-    let mut header = StreamHeader::from_raw(&key)?;
+    let mut header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
     let mut index = 256;
+    let mut read_data: [u8; 128] = [0; 128];
     while index < data_len + 256 {
-        let mut read_data: [u8; 128] = [0; 128];
         decryptor.decrypt_block_x8(&input[index..index + 128], &mut read_data[..]);
         output.extend_from_slice(&read_data);
         index += 128;
@@ -83,7 +89,7 @@ pub fn aes_decrypt(priv_key: &RSAPrivateKey, input: &[u8]) -> Result<(Vec<u8>, S
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
     if (data_len - rem as usize) < newlen {
-        let (next_packet,stream_header) = aes_decrypt(priv_key, &input[data_len..input.len()])?;
+        let (next_packet, stream_header) = aes_decrypt(priv_key, &input[data_len..input.len()])?;
         header = stream_header;
         output.extend_from_slice(&next_packet);
     }

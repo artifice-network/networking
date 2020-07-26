@@ -2,38 +2,39 @@
 for async examples see <a href="https://crates.io/crates/networking">crates.io</a>
 
 ## Sync Server
-```
+
+``` ignore
 use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer, ArtificeStream};
 
-    let (peer, config) = test_config();
-    let host = SyncHost::from_host_data(&config).unwrap();
-    for netstream in host {
-        println!("new connection");
-        let mut stream = netstream.unwrap().verify(&peer).unwrap();
-        stream.send(b"hello world").unwrap();
-        break;
-    }
+let (peer, config) = test_config();
+let host = SyncHost::from_host_data(&config).unwrap();
+for netstream in host {
+    println!("new connection");
+    let mut stream = netstream.unwrap().verify(&peer).unwrap();
+    stream.send(b"hello world").unwrap();
+    break;
+}
 ```
 ## Sync Client
-```
+
+``` ignore
 use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer};
 use std::{thread, time::Duration};
-
-    let (peer, config) = test_config();
-    //thread::sleep(Duration::from_millis(200));
-    let host = SyncHost::client_only(&config).unwrap();
-    let mut stream = host.connect(peer).unwrap();
-    println!("connected");
-    let mut buffer = Vec::new();
-    println!("about to read from sream");
-    println!(
-        "got {} bytes from server",
-        stream.recv(&mut buffer).unwrap()
-    );
-    println!("read from stream");
-    let string = String::from_utf8(buffer).unwrap();
-    println!("got message: {} from server", string);
-
+    
+let (peer, config) = test_config();
+//thread::sleep(Duration::from_millis(200));
+let host = SyncHost::client_only(&config).unwrap();
+let mut stream = host.connect(peer).unwrap();
+println!("connected");
+let mut buffer = Vec::new();
+println!("about to read from sream");
+println!(
+    "got {} bytes from server",
+    stream.recv(&mut buffer).unwrap()
+);
+println!("read from stream");
+let string = String::from_utf8(buffer).unwrap();
+println!("got message: {} from server", string);
 ```
 */
 #![feature(maybe_uninit_ref)]
@@ -46,6 +47,45 @@ extern crate lazy_static;
 pub mod encryption;
 pub mod error;
 pub use encryption::*;
+/// asyncronous implementation of the networking features provided in this crate
+/// 
+/// # Client Example
+/// 
+/// ``` ignore
+/// use networking::{asyncronous::AsyncHost, test_config};
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///    let (peer, config) = test_config();
+///    let host = AsyncHost::client_only(&config).await.unwrap();
+///    let mut stream = host.connect(peer).await.unwrap();
+///    let mut buffer = Vec::new();
+///    println!(
+///        "got {} bytes from server",
+///        stream.recv(&mut buffer).await.unwrap()
+///    );
+///    let string = String::from_utf8(buffer).unwrap();
+///    println!("got message: {} from server", string);
+///    Ok(())
+///}
+/// ```
+///
+/// # Server Example
+/// 
+/// ``` ignore
+/// use networking::{asyncronous::AsyncHost, test_config};
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn std::error::Error>> {
+///     let (peer, config) = test_config();
+///     let mut host = AsyncHost::from_host_config(&config).await.unwrap();
+///     while let Some(Ok(strm)) = host.incoming()?.await {
+///         let mut stream = strm.verify(&peer)?;
+///         // make sure you got a connection from the correct peer
+///         println!("sending message hello world");
+///         stream.send(b"hello world").await.unwrap();
+///     }
+///     Ok(())
+/// }
+/// ```
 pub mod asyncronous;
 /// contains the ArtificePeer struct
 pub mod peers;
@@ -138,7 +178,7 @@ lazy_static! {
         (peer, config)
     };
 }
-pub fn test_config() -> (ArtificePeer, ArtificeConfig){
+pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
     (PEERCONFIG.0.clone(), PEERCONFIG.1.clone())
 }
 /// used to build and configure the local host
@@ -249,9 +289,9 @@ impl Header {
             new_connection: false,
         }
     }
-    pub fn new_connection(peer: ArtificePeer, pubkey: PubKeyComp) -> Self {
+    pub fn new_connection(peer: &ArtificePeer, pubkey: PubKeyComp) -> Self {
         Self {
-            peer,
+            peer: peer.to_owned(),
             pubkey,
             packet_len: 0,
             new_connection: true,
@@ -286,23 +326,23 @@ pub struct StreamHeader {
     remander: u8,
 }
 impl StreamHeader {
-    pub fn new(global_hash: String, peer_hash: String, packet_len: usize) -> Self {
+    pub fn new(global_hash: &str, peer_hash: &str, packet_len: usize) -> Self {
         let aes_key = random_string(16).into_bytes();
         Self {
-            global_hash,
-            peer_hash,
+            global_hash: global_hash.to_string(),
+            peer_hash: peer_hash.to_string(),
             aes_key,
             packet_len,
             remander: 0,
         }
     }
-    pub fn key(&self) -> &[u8]{
+    pub fn key(&self) -> &[u8] {
         &self.aes_key
     }
     pub fn packet_len(&self) -> usize {
         self.packet_len
     }
-    pub fn data_len(&self) -> usize{
+    pub fn data_len(&self) -> usize {
         self.packet_len - (self.remander as usize)
     }
     pub fn set_packet_len(&mut self, packet_len: usize) {
@@ -343,12 +383,29 @@ impl StreamHeader {
 }
 #[test]
 fn header_to_raw_from_raw() {
-    let stream_header = StreamHeader::new(random_string(50), random_string(50), 0);
+    let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
     let raw = stream_header.to_raw();
     let new_header = StreamHeader::from_raw(&raw).unwrap();
     assert_eq!(stream_header, new_header);
 }
-/// trait used to implement common features between async and sync implementations of networking
+/// trait used to implement common features between async and syncrounous networking protocols
+/// note about this trait, it defines only the shared behavior that doesn't require high levels of IO owing to the fact that
+/// async funnctions currently can't be members of traits, I would ask that any implementation of this trait, also provides
+/// certain methods, found in the implementations in this crate
+///
+/// # methods to include
+/// 
+/// ``` ignore
+/// fn send(&mut self, inbuf: &[u8]) -> Result<usize, Box<dyn Error>>
+/// fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, Box<dyn Error>>
+/// fn connect(peer: &ArtificePeer) -> Result<Self, Box<dyn Error>>
+/// ```
+/// # why these functions
+/// reason for using these functions include
+/// <ul>
+/// <li>increased freedom over Write/AsyncWrite and Read/AsyncRead, such as chose of error</li>
+/// <li>vectors are difficult to write to when in the form of a slice, this way methods such as append, and extend_from_slice can be used</li>
+/// </ul> 
 pub trait ArtificeStream {
     type NetStream;
     fn new(
