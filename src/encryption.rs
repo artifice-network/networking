@@ -50,8 +50,10 @@ impl BigNum {
     }
 }
 impl From<&BigUint> for BigNum {
-    fn from(num: &BigUint) -> Self{
-        Self {value: num.to_bytes_be()}
+    fn from(num: &BigUint) -> Self {
+        Self {
+            value: num.to_bytes_be(),
+        }
     }
 }
 
@@ -79,12 +81,12 @@ impl PubKeyComp {
     }
 }
 impl From<&RSAPublicKey> for PubKeyComp {
-    fn from(public_key: &RSAPublicKey) -> Self{
+    fn from(public_key: &RSAPublicKey) -> Self {
         Self::from_parts(BigNum::from(public_key.n()), BigNum::from(public_key.e()))
     }
 }
 impl From<&RSAPrivateKey> for PubKeyComp {
-    fn from(private_key: &RSAPrivateKey) -> Self{
+    fn from(private_key: &RSAPrivateKey) -> Self {
         Self::from(&RSAPublicKey::from(private_key))
     }
 }

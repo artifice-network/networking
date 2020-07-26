@@ -3,63 +3,45 @@ for async examples see <a href="https://crates.io/crates/networking">crates.io</
 
 ## Sync Server
 ```
-use networking::{syncronous::SyncHost, ArtificeConfig, ArtificePeer, ArtificeStream, test_config};
-use std::fs::File;
-use std::io::Read;
+use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer, ArtificeStream};
 
-let (config, peer) = test_config();
-let host = SyncHost::from_host_data(&config).unwrap();
-    
-for netstream in host {
-    println!("new connection");
-    let mut stream = netstream.unwrap().verify(&peer).unwrap();
-    stream.send(b"hello world").unwrap();
-    break;
-}
-
+    let (peer, config) = test_config();
+    let host = SyncHost::from_host_data(&config).unwrap();
+    for netstream in host {
+        println!("new connection");
+        let mut stream = netstream.unwrap().verify(&peer).unwrap();
+        stream.send(b"hello world").unwrap();
+        break;
+    }
 ```
-
 ## Sync Client
-
 ```
-use networking::{ArtificeConfig, syncronous::SyncHost, ArtificePeer, test_peer};
-use std::fs::File;
-use std::io::Read;
+use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer};
 use std::{thread, time::Duration};
-    
-let (config, peer) = test_peer();
-println!("peer: {:?}", peer);
-//thread::sleep(Duration::from_millis(200));
-let host = SyncHost::client_only(&config).unwrap();
-let mut stream = host.connect(peer).unwrap();
-println!("connected");
-let mut buffer = Vec::new();
-println!("about to read from sream");
-println!(
-    "got {} bytes from server",
-    stream.recv(&mut buffer).unwrap()
-);
-println!("read from stream");
-let string = String::from_utf8(buffer).unwrap();
-println!("got message: {} from server", string);
-```
 
+    let (peer, config) = test_config();
+    //thread::sleep(Duration::from_millis(200));
+    let host = SyncHost::client_only(&config).unwrap();
+    let mut stream = host.connect(peer).unwrap();
+    println!("connected");
+    let mut buffer = Vec::new();
+    println!("about to read from sream");
+    println!(
+        "got {} bytes from server",
+        stream.recv(&mut buffer).unwrap()
+    );
+    println!("read from stream");
+    let string = String::from_utf8(buffer).unwrap();
+    println!("got message: {} from server", string);
+
+```
 */
 #![feature(maybe_uninit_ref)]
 #![feature(ip)]
 #[macro_use]
 extern crate serde_derive;
-#[macro_use]extern crate lazy_static;
-lazy_static! {
-    static ref PEER_HASH: String = {
-        random_string(50)
-    };
-}
-lazy_static! {
-    static ref GLOBAL_HASH: String = {
-        random_string(50)
-    };
-}
+#[macro_use]
+extern crate lazy_static;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
 pub mod error;
@@ -86,7 +68,7 @@ use std::{
 fn get_private_key() -> RSAPrivateKey {
     use num_bigint_dig::BigUint;
 
-    let n = BigUint::from_bytes_be(&vec![
+    let n = BigUint::from_bytes_be(&[
         214, 82, 135, 64, 34, 118, 248, 217, 78, 42, 130, 198, 138, 28, 117, 66, 23, 74, 77, 139,
         51, 187, 14, 166, 48, 66, 217, 18, 157, 202, 175, 238, 60, 29, 39, 85, 58, 33, 145, 25, 55,
         214, 51, 72, 184, 142, 141, 183, 54, 186, 102, 59, 131, 86, 167, 220, 74, 65, 65, 43, 42,
@@ -101,7 +83,7 @@ fn get_private_key() -> RSAPrivateKey {
         99, 96, 120, 124, 19, 53, 161, 84, 133, 163, 144, 88, 163, 17, 171, 101, 164, 223, 169, 15,
         63, 80, 2, 207, 95, 248, 66, 244, 196, 207, 68, 49, 45, 25, 95, 255,
     ]);
-    let e = BigUint::from_bytes_be(&vec![1, 0, 1]);
+    let e = BigUint::from_bytes_be(&[1, 0, 1]);
     let d = BigUint::from_bytes_be(&[
         11, 49, 174, 76, 196, 64, 16, 137, 81, 18, 217, 87, 195, 88, 239, 42, 239, 138, 122, 248,
         93, 80, 84, 216, 139, 70, 194, 141, 189, 94, 27, 200, 70, 173, 131, 35, 105, 112, 221, 98,
@@ -119,7 +101,7 @@ fn get_private_key() -> RSAPrivateKey {
         217,
     ]);
     let primes = vec![
-        BigUint::from_bytes_be(&vec![
+        BigUint::from_bytes_be(&[
             218, 18, 255, 185, 216, 198, 202, 164, 130, 230, 249, 202, 68, 69, 5, 246, 219, 99,
             170, 211, 253, 14, 210, 149, 41, 44, 110, 173, 245, 102, 19, 175, 3, 243, 129, 86, 166,
             104, 105, 78, 11, 162, 161, 239, 8, 206, 97, 222, 183, 132, 115, 39, 49, 172, 164, 33,
@@ -128,7 +110,7 @@ fn get_private_key() -> RSAPrivateKey {
             44, 144, 186, 37, 149, 107, 154, 19, 116, 16, 196, 53, 166, 113, 122, 192, 87, 122,
             124, 252, 84, 221, 91, 56, 15, 55, 74, 92, 56, 82, 176, 104, 149, 87, 195,
         ]),
-        BigUint::from_bytes_be(&vec![
+        BigUint::from_bytes_be(&[
             251, 152, 125, 227, 130, 36, 160, 198, 157, 132, 251, 120, 127, 208, 105, 53, 3, 219,
             28, 218, 154, 192, 227, 251, 141, 201, 136, 237, 210, 125, 215, 149, 134, 32, 240, 187,
             116, 102, 200, 255, 174, 116, 14, 121, 133, 65, 96, 31, 211, 100, 81, 152, 87, 243,
@@ -140,26 +122,24 @@ fn get_private_key() -> RSAPrivateKey {
     ];
     RSAPrivateKey::from_components(n, e, d, primes)
 }
-pub fn test_config() -> (ArtificeConfig, ArtificePeer) {
-    let private_key = get_private_key();
-    let first_global = random_string(50);
-    let second_global = GLOBAL_HASH.to_string();
-    let peer_hash = PEER_HASH.to_string();
-    let host_data = ArtificeHostData::new(&private_key, first_global);
-    let config = ArtificeConfig::new(Layer3Addr::V4([0,0,0,0]), 6464, host_data, false);
-    let peer = ArtificePeer::new(second_global, peer_hash, Layer3SocketAddr::from_layer3_addr(Layer3Addr::V4([127,0,0,1]), 6464), PubKeyComp::from(&private_key));
-    (config, peer)
+lazy_static! {
+    static ref PEERCONFIG: (ArtificePeer, ArtificeConfig) = {
+        let private_key = get_private_key();
+        let global_hash = "CzlFhuFsF7fCYIk1b8CnGuERPeJ2ywOzsMxSKyxTFKTAQlU8Fl".to_string();
+        let peer_hash = "2o4iPLBTDzLDedP4xvijngPfaw99TszSrMS99IwxxuXhZZyOqi".to_string();
+        let peer = ArtificePeer::new(
+            global_hash.clone(),
+            peer_hash,
+            Layer3SocketAddr::from_layer3_addr(Layer3Addr::V4([127, 0, 0, 1]), 6464),
+            PubKeyComp::from(&private_key),
+        );
+        let host_data = ArtificeHostData::new(&private_key, global_hash);
+        let config = ArtificeConfig::new(Layer3Addr::V4([0, 0, 0, 0]), 6464, host_data, false);
+        (peer, config)
+    };
 }
-pub fn test_peer() -> (ArtificeConfig, ArtificePeer) {
-    let private_key = get_private_key();
-    let first_global = random_string(50);
-    let host_data = ArtificeHostData::new(&private_key, first_global);
-    let config = ArtificeConfig::new(Layer3Addr::V4([0,0,0,0]), 6464, host_data, false);
-    let private_key = get_private_key();
-    let second_global = GLOBAL_HASH.to_string();
-    let peer_hash = PEER_HASH.to_string();
-    let peer = ArtificePeer::new(second_global, peer_hash, Layer3SocketAddr::from_layer3_addr(Layer3Addr::V4([127,0,0,1]), 6464), PubKeyComp::from(&private_key));
-    (config, peer)
+pub fn test_config() -> (ArtificePeer, ArtificeConfig){
+    (PEERCONFIG.0.clone(), PEERCONFIG.1.clone())
 }
 /// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
@@ -170,8 +150,13 @@ pub struct ArtificeConfig {
     host: ArtificeHostData,
 }
 impl ArtificeConfig {
-    pub fn new(address: Layer3Addr, port: u16, host: ArtificeHostData, broadcast: bool) -> Self{
-        Self {broadcast, address, port, host}
+    pub fn new(address: Layer3Addr, port: u16, host: ArtificeHostData, broadcast: bool) -> Self {
+        Self {
+            broadcast,
+            address,
+            port,
+            host,
+        }
     }
     /// used to create new host, primarily designed for use by the installer crate
     pub fn generate(address: Layer3Addr) -> Self {
@@ -311,10 +296,16 @@ impl StreamHeader {
             remander: 0,
         }
     }
+    pub fn key(&self) -> &[u8]{
+        &self.aes_key
+    }
     pub fn packet_len(&self) -> usize {
         self.packet_len
     }
-    pub fn set_packet_let(&mut self, packet_len: usize) {
+    pub fn data_len(&self) -> usize{
+        self.packet_len - (self.remander as usize)
+    }
+    pub fn set_packet_len(&mut self, packet_len: usize) {
         self.packet_len = packet_len;
     }
     /// remander is calculated by 128 - (packet_len % 128) to break into encryptable blocks

@@ -1,9 +1,9 @@
-use networking::{asyncronous::AsyncHost, ArtificeConfig, ArtificePeer};
+// the point of this example is to show large data transimissions over the network
+// future example implementation will support data transmission greater then 65535
+use networking::{asyncronous::AsyncHost, test_config};
 use opencv::{core, imgcodecs::*, prelude::*, videoio};
 use std::error::Error;
 use std::fmt;
-use std::fs::File;
-use std::io::Read;
 use tokio::runtime::{Handle, Runtime};
 #[derive(Debug)]
 pub enum ExampleError {
@@ -29,16 +29,7 @@ impl From<networking::error::NetworkError> for ExampleError {
 }
 
 async fn run(_handle: Handle) -> Result<(), ExampleError> {
-    let mut config_file = File::open("host.json").unwrap();
-    let mut conf_vec = String::new();
-    config_file.read_to_string(&mut conf_vec).unwrap();
-    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
-    let mut file = File::open("peer.json").unwrap();
-    let mut invec = Vec::new();
-    file.read_to_end(&mut invec).unwrap();
-    let string = String::from_utf8(invec).unwrap();
-    // println!("invec: {}", invec);
-    let peer: ArtificePeer = serde_json::from_str(&string).unwrap();
+    let (peer, config) = test_config();
     let host = AsyncHost::client_only(&config).await.unwrap();
     let mut socket = host.connect(peer).await.unwrap();
     println!("connected");
@@ -57,7 +48,6 @@ async fn run(_handle: Handle) -> Result<(), ExampleError> {
         let mut outbuf: core::Vector<u8> = core::Vector::with_capacity(640 * 480 * 3);
         if frame.size()?.width > 0 {
             imencode(".jpg", &frame, &mut outbuf, &params)?;
-            println!("about to send, {} bytes", outbuf.len());
             socket.send(&outbuf.to_vec()).await?;
         }
     }

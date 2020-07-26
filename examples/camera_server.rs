@@ -1,29 +1,21 @@
+// this crate is an example of sending a large amount of data through this network
+// in the future it will implement data transmisions with lengths greater then 65535
 use networking::{
+    test_config,
     asyncronous::{AsyncHost, AsyncStream},
-    ArtificeConfig, ArtificePeer,
 };
 use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
 use std::error::Error;
-use std::fs::File;
-use std::io::Read;
-use tokio::runtime::{Handle, Runtime};
+use tokio::runtime::{Runtime};
 
 fn main() {
     let mut runtime = Runtime::new().unwrap();
-    let handle = runtime.handle().clone();
-    runtime.block_on(run(handle)).unwrap();
+    runtime.block_on(run()).unwrap();
 }
-async fn run(handle: Handle) -> Result<(), ExampleError> {
-    let mut config_file = File::open("host.json").unwrap();
-    let mut conf_vec = String::new();
-    config_file.read_to_string(&mut conf_vec).unwrap();
-    let config: ArtificeConfig = serde_json::from_str(&conf_vec).unwrap();
+async fn run() -> Result<(), ExampleError> {
+    let (peer, config) = test_config();
     let mut host = AsyncHost::from_host_config(&config).await.unwrap();
-    let mut file = File::open("peer.json").unwrap();
-    let mut invec = String::new();
-    file.read_to_string(&mut invec).unwrap();
     // peer can be anything that implements PeerList
-    let peer: ArtificePeer = serde_json::from_str(&invec).unwrap();
     while let Some(Ok(strm)) = host.incoming()?.await {
         let stream = strm.verify(&peer)?;
         println!("new connection verified");
@@ -40,7 +32,6 @@ async fn run_server(mut socket: AsyncStream) -> Result<(), ExampleError> {
     let mut vec: core::Vector<u8> = core::Vector::with_capacity(65535);
     loop {
         let recv_len = socket.recv(&mut read_buf).await?;
-        println!("received data");
         for i in &read_buf {
             if 1 == recv_len {
                 break;
@@ -54,6 +45,7 @@ async fn run_server(mut socket: AsyncStream) -> Result<(), ExampleError> {
             break;
         }
         vec.clear();
+        read_buf.clear();
     }
     Ok(())
 }
