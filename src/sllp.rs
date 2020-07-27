@@ -8,12 +8,12 @@ use crate::asyncronous::encryption::{
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
 use crate::Query;
-use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header};
+use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use rsa::RSAPrivateKey;
+use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -23,16 +23,93 @@ use tokio::sync::{
     Mutex, MutexGuard,
 };
 use tokio::{net::UdpSocket, stream::Stream};
+// ==========================================================================
+//                          Split type for Sllp Stream
+// ==========================================================================
+/// send half of SllpStream
+#[derive(Debug)]
+pub struct StreamRecv {
+    header: Header,
+    priv_key: RSAPrivateKey,
+    receiver: Receiver<IncomingMsg>,
+}
+
+impl StreamRecv {
+    pub fn new(header: Header, priv_key: RSAPrivateKey, receiver: Receiver<IncomingMsg>) -> Self {
+        Self {
+            header,
+            priv_key,
+            receiver,
+        }
+    }
+    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<(), NetworkError> {
+        let (data, data_len) = match self.receiver.recv().await {
+            Some(result) => result,
+            None => {
+                return Err(NetworkError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "channel closed",
+                )))
+            }
+        };
+        let (dec_data, header) = aes_decrypt(&self.priv_key, &data[0..data_len])?;
+        if header != self.header {
+            return Err(NetworkError::ConnectionDenied(
+                "potential man in the middle attack".to_string(),
+            ));
+        }
+        outbuf.extend_from_slice(&dec_data);
+        Ok(())
+    }
+}
+
+/// send half of SllpStream
+#[derive(Debug, Clone)]
+pub struct StreamSend {
+    header: StreamHeader,
+    pubkey: RSAPublicKey,
+    remote_addr: SocketAddr,
+    sender: Sender<OutgoingMsg>,
+}
+impl StreamSend {
+    pub fn new(
+        header: StreamHeader,
+        pubkey: RSAPublicKey,
+        remote_addr: SocketAddr,
+        sender: Sender<OutgoingMsg>,
+    ) -> Self {
+        Self {
+            header,
+            pubkey,
+            remote_addr,
+            sender,
+        }
+    }
+    pub async fn send(&mut self, inbuf: &[u8]) -> Result<(), NetworkError> {
+        Ok(self
+            .sender
+            .send((
+                aes_encrypt(&self.pubkey, self.header.clone(), inbuf)?,
+                self.remote_addr,
+            ))
+            .await?)
+    }
+}
+
 /// this represents a UDP connection to a peer.
 /// while that may seem oxymoronic, in practice, implementing a structure this way allows for a finer grain of
 /// what data transfer methods are nessisary, as this crate implements high security, an increase in efficiency wouldn't rely on
 /// lack of connection, instead, the connection is maintained, and the efficiency gain comes from the lack of packet ordering,
 /// and extraneous network transmissions
+
+// ==========================================================================
+//                                 Sllp Stream
+// ===========================================================================
 #[derive(Debug)]
 pub struct SllpStream {
     header: Header,
     priv_key: RSAPrivateKey,
-    query: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>,
+    query: AsyncQuery<OutgoingMsg, IncomingMsg>,
     remote_addr: SocketAddr,
 }
 impl SllpStream {
@@ -63,6 +140,18 @@ impl SllpStream {
         }
         outbuf.extend_from_slice(&dec_data);
         Ok(())
+    }
+    pub fn split(self) -> (StreamSend, StreamRecv) {
+        let (sender, receiver) = self.query.split();
+        (
+            StreamSend::new(
+                self.header.stream_header(),
+                RSAPublicKey::from(&self.priv_key),
+                self.remote_addr,
+                sender,
+            ),
+            StreamRecv::new(self.header, self.priv_key, receiver),
+        )
     }
 }
 impl ArtificeStream for SllpStream {
@@ -140,8 +229,8 @@ pub struct SllpIncoming {
     receiver: Receiver<NewConnection>,
 }
 impl SllpIncoming {
-    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self{
-        Self {priv_key, receiver}
+    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self {
+        Self { priv_key, receiver }
     }
 }
 impl Stream for SllpIncoming {
@@ -194,15 +283,19 @@ pub struct SllpOutgoing {
 }
 impl SllpOutgoing {
     /// could've been private, but functionality and transparency are important
-    pub fn new(streams: Streams, priv_key: RSAPrivateKey, outgoing_sender: Sender<OutgoingMsg>) -> Self{
-        Self{
+    pub fn new(
+        streams: Streams,
+        priv_key: RSAPrivateKey,
+        outgoing_sender: Sender<OutgoingMsg>,
+    ) -> Self {
+        Self {
             streams,
             priv_key,
             outgoing_sender,
         }
     }
     /// same as SllpSocket, couldn't find an easy way of putting in a trait
-    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream{
+    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
@@ -247,8 +340,10 @@ impl SllpSocket {
                 .collect(),
         );
         let socket = UdpSocket::bind(socket_addr).await?;
-        let (mut request_sender, request_receiver): (Sender<NewConnection>, Receiver<NewConnection>) =
-            channel(200);
+        let (mut request_sender, request_receiver): (
+            Sender<NewConnection>,
+            Receiver<NewConnection>,
+        ) = channel(200);
         let (outgoing_sender, mut outgoing_receiver): (
             Sender<OutgoingMsg>,
             Receiver<(Vec<u8>, SocketAddr)>,
@@ -316,8 +411,11 @@ impl SllpSocket {
             .insert(peer.socket_addr(), incoming_sender);
         stream.unwrap()
     }
-    pub fn split(self) -> (SllpOutgoing, SllpIncoming){
-        (SllpOutgoing::new(self.streams, self.priv_key.clone(), self.outgoing_sender), SllpIncoming::new(self.priv_key, self.receiver))
+    pub fn split(self) -> (SllpOutgoing, SllpIncoming) {
+        (
+            SllpOutgoing::new(self.streams, self.priv_key.clone(), self.outgoing_sender),
+            SllpIncoming::new(self.priv_key, self.receiver),
+        )
     }
     pub fn incoming(&mut self) -> &mut Self {
         self
