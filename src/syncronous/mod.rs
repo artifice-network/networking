@@ -1,11 +1,10 @@
-use crate::encryption::*;
 use crate::error::NetworkError;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
 use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
 pub use encryption::*;
-use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
+use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
@@ -29,14 +28,7 @@ impl ArtificeStream for SyncStream {
         peer: &ArtificePeer,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::Error> {
-        let pubkey = peer.pubkey()?;
-        let header = Header::new(
-            peer,
-            PubKeyComp::from_parts(
-                BigNum::from_biguint(pubkey.n().clone()),
-                BigNum::from_biguint(pubkey.e().clone()),
-            ),
-        );
+        let header = Header::new(peer);
         Ok(Self {
             header,
             stream: Arc::new(Mutex::new(stream)),
@@ -47,14 +39,14 @@ impl ArtificeStream for SyncStream {
     fn peer(&self) -> &ArtificePeer {
         self.header.peer()
     }
-    fn pubkey(&self) -> RSAPublicKey {
+    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
         self.header.pubkey()
     }
     fn socket_addr(&self) -> SocketAddr {
         self.remote_addr
     }
-    fn header(&self) -> Header {
-        self.header.clone()
+    fn header(&self) -> &Header {
+        &self.header
     }
 }
 impl SyncStream {
@@ -177,7 +169,7 @@ impl std::iter::Iterator for SyncHost {
                         Some(Ok(ConnectionRequest::new(
                             match SyncStream::new(stream, self.priv_key.clone(), &peer, addr) {
                                 Ok(stream) => stream,
-                                Err(e) => return Some(Err(e.into())),
+                                Err(e) => return Some(Err(e)),
                             },
                         )))
                     }
@@ -196,7 +188,7 @@ impl SyncHost {
         let data = config.host_data();
         let port = config.port();
         let address = config.address();
-        let priv_key_comp = data.private_key();
+        let priv_key_comp = data.privkeycomp();
         let socket_addr = address.to_socket_addr(port);
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into_inner(),
@@ -237,7 +229,7 @@ impl SyncHost {
         let port = config.port();
         let address = config.address();
         let socket_addr = address.to_socket_addr(port);
-        let priv_key_comp = data.private_key();
+        let priv_key_comp = data.privkeycomp();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into_inner(),
             priv_key_comp.e().into_inner(),

@@ -2,7 +2,10 @@ use std::array::TryFromSliceError;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf8Error;
-use tokio::sync::mpsc::error::SendError;
+use std::sync::mpsc::RecvError as SyncRecvError;
+use std::sync::mpsc::SendError as SyncSendError;
+use tokio::sync::mpsc::error::RecvError as AsyncRecvError;
+use tokio::sync::mpsc::error::SendError as AsyncSendError;
 #[derive(Debug)]
 pub enum NetworkError {
     IOError(std::io::Error),
@@ -12,7 +15,10 @@ pub enum NetworkError {
     ConnectionDenied(String),
     FromSlice(TryFromSliceError),
     UnSet(String),
-    SendError(SendError<Vec<u8>>),
+    AsyncSendError(String),
+    AsyncRecvError(String),
+    SyncSendError(String),
+    SyncRecvError(String),
 }
 impl fmt::Display for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -24,7 +30,10 @@ impl fmt::Display for NetworkError {
             NetworkError::UTF8(e) => format!("{}", e),
             NetworkError::ConnectionDenied(e) => e.to_string(),
             NetworkError::FromSlice(e) => format!("{}", e),
-            NetworkError::SendError(e) => format!("{}", e),
+            NetworkError::AsyncSendError(e) => e.to_string(),
+            NetworkError::AsyncRecvError(e) => e.to_string(),
+            NetworkError::SyncSendError(e) => e.to_string(),
+            NetworkError::SyncRecvError(e) => e.to_string(),
         };
         write!(f, "{}", msg)
     }
@@ -55,8 +64,23 @@ impl From<TryFromSliceError> for NetworkError {
         NetworkError::FromSlice(error)
     }
 }
-impl From<SendError<Vec<u8>>> for NetworkError {
-    fn from(error: SendError<Vec<u8>>) -> Self{
-        NetworkError::SendError(error)
+impl<T> From<AsyncSendError<T>> for NetworkError {
+    fn from(error: AsyncSendError<T>) -> NetworkError {
+        NetworkError::AsyncSendError(format!("{}", error))
+    }
+}
+impl From<AsyncRecvError> for NetworkError {
+    fn from(error: AsyncRecvError) -> NetworkError {
+        NetworkError::AsyncRecvError(format!("{}", error))
+    }
+}
+impl<T> From<SyncSendError<T>> for NetworkError {
+    fn from(error: SyncSendError<T>) -> NetworkError {
+        NetworkError::SyncSendError(format!("{}", error))
+    }
+}
+impl From<SyncRecvError> for NetworkError {
+    fn from(error: SyncRecvError) -> NetworkError {
+        NetworkError::SyncRecvError(format!("{}", error))
     }
 }

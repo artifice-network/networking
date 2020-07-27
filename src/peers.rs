@@ -95,14 +95,14 @@ impl RemotePeer {
             pubkey,
         }
     }
-    pub fn global_peer_hash(&self) -> String {
-        self.global_peer_hash.clone()
+    pub fn global_peer_hash(&self) -> &str {
+        &self.global_peer_hash
     }
     pub fn addr(&self) -> Layer3SocketAddr {
         self.addr
     }
-    pub fn pubkeycomp(&self) -> PubKeyComp {
-        self.pubkey.clone()
+    pub fn pubkeycomp(&self) -> &PubKeyComp {
+        &self.pubkey
     }
     pub fn routable(&self) -> bool {
         self.routable
@@ -156,8 +156,8 @@ impl ArtificePeer {
         self.addr.as_ipaddr()
     }
     /// makes public key pair available to the client program, for encryption purposes
-    pub fn pubkeycomp(&self) -> PubKeyComp {
-        self.pubkey.clone()
+    pub fn pubkeycomp(&self) -> &PubKeyComp {
+        &self.pubkey
     }
     pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
         Ok(RSAPublicKey::new(self.pubkey.n(), self.pubkey.e())?)

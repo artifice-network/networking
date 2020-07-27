@@ -1,7 +1,6 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
-use crate::encryption::{BigNum, PubKeyComp};
 use crate::ArtificeConfig;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
@@ -11,15 +10,14 @@ use futures::{
 };
 pub mod encryption;
 use encryption::{asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt};
-use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
-use std::collections::HashMap;
+use rsa::{RSAPrivateKey, RSAPublicKey};
+
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
 use std::sync::mpsc::Sender;
 use tokio::io::AsyncRead;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::sync::mpsc::{channel, Receiver, Sender as AsyncSender};
-use tokio::{net::TcpListener, net::TcpStream, net::UdpSocket, stream::Stream};
+use tokio::{net::TcpListener, net::TcpStream, stream::Stream};
 
 // ===============================================================================
 //                                   Async Stream
@@ -41,14 +39,7 @@ impl ArtificeStream for AsyncStream {
         peer: &ArtificePeer,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::Error> {
-        let pubkey = peer.pubkey()?;
-        let header = Header::new(
-            peer,
-            PubKeyComp::from_parts(
-                BigNum::from_biguint(pubkey.n().clone()),
-                BigNum::from_biguint(pubkey.e().clone()),
-            ),
-        );
+        let header = Header::new(peer);
         Ok(Self {
             header,
             stream,
@@ -59,7 +50,7 @@ impl ArtificeStream for AsyncStream {
     fn peer(&self) -> &ArtificePeer {
         self.header.peer()
     }
-    fn pubkey(&self) -> RSAPublicKey {
+    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
         self.header.pubkey()
     }
     fn socket_addr(&self) -> SocketAddr {
@@ -68,8 +59,8 @@ impl ArtificeStream for AsyncStream {
     fn addr(&self) -> IpAddr {
         self.remote_addr.ip()
     }
-    fn header(&self) -> Header {
-        self.header.clone()
+    fn header(&self) -> &Header {
+        &self.header
     }
 }
 // ====================================== ====================================================
@@ -144,7 +135,7 @@ impl AsyncHost {
         let data = config.host_data();
         let port = config.port();
         let address = config.address();
-        let priv_key_comp = data.private_key();
+        let priv_key_comp = data.privkeycomp();
         let socket_addr = address.to_socket_addr(port);
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into_inner(),
@@ -175,7 +166,7 @@ impl AsyncHost {
         let data = config.host_data();
         let port = config.port();
         let address = config.address();
-        let priv_key_comp = data.private_key();
+        let priv_key_comp = data.privkeycomp();
         let socket_addr = address.to_socket_addr(port);
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into_inner(),
@@ -264,7 +255,7 @@ impl<'a> Stream for Incoming<'a> {
                             Ok(data_len) => data_len,
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         }) {
-                            Ok(data_len) => data_len,
+                            Ok(peer) => peer,
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
@@ -288,154 +279,3 @@ impl<'a> Future for Incoming<'a> {
         Stream::poll_next(self, ctx)
     }
 }
-// ===============================================================================
-//                             Async Paired Socket
-// ===============================================================================
-/// this represents a UDP connection to a peer.
-/// while that may seem oxymoronic, in practice implementing a structure this way allos for a finer grain of
-/// what data transfer methods are nessisary, as this crate implements high security, an increase in efficiency wouldn't rely on
-/// lack of connection, instead, the connection is maintained, and the efficiency gain comes from the lack of packet ordering,
-/// and extraneous network transmissions
-pub struct AsyncPairedSocket {
-    header: Header,
-    priv_key: RSAPrivateKey,
-    sender: AsyncSender<Vec<u8>>,
-    receiver: Receiver<Result<([u8; 65535], usize), NetworkError>>,
-    remote_addr: SocketAddr,
-}
-impl AsyncPairedSocket {
-    pub async fn send(&mut self, inbuf: &[u8]) -> Result<(), NetworkError>{
-        Ok(self.sender.send(aes_encrypt(&self.priv_key, self.header.stream_header(), inbuf)?).await?)
-    }
-    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<(), NetworkError> {
-        let result = match self.receiver.recv().await {
-            Some(result) => result,
-            None => {
-                return Err(NetworkError::IOError(std::io::Error::new(
-                    std::io::ErrorKind::ConnectionReset,
-                    "channel closed",
-                )))
-            },
-        };
-        let (data, header) = match result {
-            Ok((data, data_len)) => aes_decrypt(&self.priv_key, &data[0..data_len])?,
-            Err(e) => return Err(NetworkError::from(e)),
-        };
-        if header != self.header {
-            return Err(NetworkError::ConnectionDenied("potential man in the middle attack".to_string()));
-        }
-        outbuf.extend_from_slice(&data);
-        Ok(())
-    }
-}
-impl ArtificeStream for AsyncPairedSocket {
-    type NetStream = (
-        AsyncSender<Vec<u8>>,
-        Receiver<Result<([u8; 65535], usize), NetworkError>>,
-    );
-    type Error = NetworkError;
-    fn new(
-        (sender, receiver): (
-            AsyncSender<Vec<u8>>,
-            Receiver<Result<([u8; 65535], usize), NetworkError>>,
-        ),
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
-        remote_addr: SocketAddr,
-    ) -> Result<Self, Self::Error> {
-        let pubkey = peer.pubkey()?;
-        let header = Header::new(
-            peer,
-            PubKeyComp::from_parts(
-                BigNum::from_biguint(pubkey.n().clone()),
-                BigNum::from_biguint(pubkey.e().clone()),
-            ),
-        );
-        Ok(Self {
-            header,
-            priv_key,
-            sender,
-            receiver,
-            remote_addr,
-        })
-    }
-    fn peer(&self) -> &ArtificePeer {
-        self.header.peer()
-    }
-    fn pubkey(&self) -> RSAPublicKey {
-        self.header.pubkey()
-    }
-    fn socket_addr(&self) -> SocketAddr {
-        self.remote_addr
-    }
-    fn addr(&self) -> IpAddr {
-        self.remote_addr.ip()
-    }
-    fn header(&self) -> Header {
-        self.header.clone()
-    }
-}
-// ===================================================================================
-//                             Async Socket Listener
-// ===================================================================================
-/// this structure provides an alternative to TCP Networking, but is not connectionless
-/// while this structure uses an owned UdpSocket for networking, it also maintains a connection through the standard means that this crate provides
-/// this is offered as a way to increase the efficiency of the network of TCP at the cost of a lack of garuntee of packet order
-/// future implementations may implement a system of dropping out dated packets
-pub struct AsyncSocketListener {
-    socket: UdpSocket,
-    priv_key: RSAPrivateKey,
-    senders: HashMap<SocketAddr, AsyncSender<[u8; 65535]>>,
-    receiver: Receiver<[u8; 65535]>,
-    sender: AsyncSender<[u8; 65535]>,
-}
-impl AsyncSocketListener {
-    pub async fn from_host_data(config: &ArtificeConfig) -> Result<Self, NetworkError> {
-        let data = config.host_data();
-        let port = config.port();
-        let address = config.address();
-        let priv_key_comp = data.private_key();
-        let socket_addr = address.to_socket_addr(port);
-        let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
-        );
-        let socket = UdpSocket::bind(socket_addr).await?;
-        let (sender, receiver) = channel(200);
-        let senders = HashMap::new();
-        Ok(Self {
-            socket,
-            priv_key,
-            senders,
-            receiver,
-            sender,
-        })
-    }
-    pub async fn connect() {}
-}
-/*impl Stream for AsyncSocketListener {
-    type Item = Result<ConnectionRequest<AsyncPairedSocket>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
-        let mut buffer = [0;65535];
-        match self.socket.recv_from(&mut buffer).poll(ctx) {
-            Ok((data_len, addr)) => {
-                match self.senders.get(addr) {
-                    Some(sender) => {
-                        sender.send(buffer).poll(ctx);
-                        Poll::Pending
-                    },
-                    None => {
-                        // initiate connection
-                    }
-                }
-            },
-            Err(e) => Poll::Pending,
-        }
-    }
-}*/

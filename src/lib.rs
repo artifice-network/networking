@@ -37,7 +37,6 @@ let string = String::from_utf8(buffer).unwrap();
 println!("got message: {} from server", string);
 ```
 */
-#![feature(maybe_uninit_ref)]
 #![feature(ip)]
 #[macro_use]
 extern crate serde_derive;
@@ -46,8 +45,8 @@ extern crate lazy_static;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
 pub mod error;
-pub use encryption::*;
-/// asyncronous implementation of the networking features provided in this crate
+use encryption::*;
+/// asyncronous implementation of the tcp networking provided in this crate
 ///
 /// # Client Example
 ///
@@ -89,8 +88,16 @@ pub use encryption::*;
 pub mod asyncronous;
 /// contains the ArtificePeer struct
 pub mod peers;
-/// used for permission requests in the manager crate
-pub mod query;
+mod query;
+pub use query::asyncronous as async_query;
+pub use query::syncronous as sync_query;
+/// used for bi-directional communication
+pub use query::Query;
+
+/// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
+/// note that this module has no syncronous implementation
+pub mod sllp;
+
 pub mod syncronous;
 use crate::encryption::PubKeyComp;
 use crate::error::NetworkError;
@@ -178,6 +185,8 @@ lazy_static! {
         (peer, config)
     };
 }
+/// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
+/// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
     (PEERCONFIG.0.clone(), PEERCONFIG.1.clone())
 }
@@ -248,24 +257,24 @@ impl ArtificeHostData {
             global_peer_hash,
         }
     }
-    pub fn private_key(&self) -> PrivKeyComp {
-        self.priv_key.clone()
+    /// returns the n, e, d, and primes of an RSA key
+    pub fn privkeycomp(&self) -> &PrivKeyComp {
+        &self.priv_key
     }
-    pub fn global_peer_hash(&self) -> String {
-        self.global_peer_hash.clone()
+    pub fn global_peer_hash(&self) -> &str {
+        &self.global_peer_hash
     }
 }
 /// contains peer information sent accross the network in an effort to prevent man in the middle attacks
 #[derive(Debug, Clone, Eq, Serialize, Deserialize)]
 pub struct Header {
     peer: ArtificePeer,
-    pubkey: PubKeyComp,
     packet_len: usize,
     new_connection: bool,
 }
 impl PartialEq for Header {
     fn eq(&self, other: &Self) -> bool {
-        self.peer == other.peer && self.pubkey == other.pubkey
+        self.peer == other.peer && self.pubkeycomp() == other.pubkeycomp()
     }
 }
 impl PartialEq<StreamHeader> for Header {
@@ -281,18 +290,16 @@ impl PartialEq<Header> for StreamHeader {
     }
 }
 impl Header {
-    pub fn new(peer: &ArtificePeer, pubkey: PubKeyComp) -> Self {
+    pub fn new(peer: &ArtificePeer) -> Self {
         Self {
             peer: peer.to_owned(),
-            pubkey,
             packet_len: 0,
             new_connection: false,
         }
     }
-    pub fn new_connection(peer: &ArtificePeer, pubkey: PubKeyComp) -> Self {
+    pub fn new_pair(peer: &ArtificePeer) -> Self {
         Self {
             peer: peer.to_owned(),
-            pubkey,
             packet_len: 0,
             new_connection: true,
         }
@@ -307,8 +314,11 @@ impl Header {
     pub fn peer(&self) -> &ArtificePeer {
         &self.peer
     }
-    pub fn pubkey(&self) -> RSAPublicKey {
-        RSAPublicKey::new(self.pubkey.n(), self.pubkey.e()).unwrap()
+    pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
+        self.peer.pubkey()
+    }
+    pub fn pubkeycomp(&self) -> &PubKeyComp {
+        self.peer.pubkeycomp()
     }
     pub fn packet_len(&self) -> usize {
         self.packet_len
@@ -317,6 +327,8 @@ impl Header {
         self.packet_len = len;
     }
 }
+/// used to ensure man in the middle attack doesn't occure, but used in place of the Header struct
+/// because it is much smaller
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct StreamHeader {
     global_hash: String,
@@ -348,14 +360,15 @@ impl StreamHeader {
     pub fn set_packet_len(&mut self, packet_len: usize) {
         self.packet_len = packet_len;
     }
-    /// remander is calculated by 128 - (packet_len % 128) to break into encryptable blocks
+    /// remander is calculated by 128 - (packet_len % 128) to break into encryptable blocks for async
+    /// for sync calculated based on 16 - (packet_len % 128)
     pub fn remander(&self) -> u8 {
         self.remander
     }
     pub fn set_remander(&mut self, remander: u8) {
         self.remander = remander;
     }
-    /// used in place of serde_json::to_string(), owing to that method generating extra bytes
+    /// used in place of serde_json::to_string(), because serde_json generates un-needed data
     pub fn to_raw(&self) -> Vec<u8> {
         let mut outvec = Vec::with_capacity(125);
         outvec.extend_from_slice(&self.global_hash.as_bytes());
@@ -365,6 +378,7 @@ impl StreamHeader {
         outvec.push(self.remander);
         outvec
     }
+    /// convert 125 bytes (length of data) to StreamHeader
     pub fn from_raw(data: &[u8]) -> Result<Self, NetworkError> {
         assert_eq!(data.len(), 125);
         let global_hash = String::from_utf8(data[0..50].to_vec())?;
@@ -421,10 +435,17 @@ pub trait ArtificeStream {
         self.socket_addr().ip()
     }
     fn socket_addr(&self) -> SocketAddr;
-    fn pubkey(&self) -> RSAPublicKey;
+    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
+        let components = self.pubkeycomp();
+        Ok(RSAPublicKey::new(components.n(), components.e())?)
+    }
+    fn pubkeycomp(&self) -> &PubKeyComp {
+        self.header().pubkeycomp()
+    }
     fn peer(&self) -> &ArtificePeer;
-    fn header(&self) -> Header;
+    fn header(&self) -> &Header;
 }
+/// used to set discoverability on the local network
 pub trait ArtificeHost {
     fn begin_broadcast(socket_addr: SocketAddr) -> std::io::Result<Sender<bool>> {
         let (sender, recv) = channel();
@@ -443,6 +464,7 @@ pub trait ArtificeHost {
     }
     fn stop_broadcasting(&self);
 }
+/// used to unlock network streams, to provent unauthorized peers
 pub struct ConnectionRequest<T: ArtificeStream> {
     stream: T,
 }

@@ -7,9 +7,17 @@ this crate aims to prevent man in the middle attacks by encrypting pre-shared ke
 
 ## Version details
 
-see repository's RELEASE.md
+this version comes with an SLLP (Secure Low Latency Protocol) implementation. this protocol created for the purpose of this project
+is a semi-connection enabled protocol based on udp. as a protocol it matains a connection for all intents and pruposes
+in the same manner as the tcp implementation of this project, however for the sake of efficiency, data ordering, as well as packet loss may occure.
+
+## implementation of SLLP
+
+the SLLP implementation in this project, ensures a connection that is private between two peers, by authenticating 
+encrypted pre-shared keys, and as a safety measure moniters packet frequency on a given pair of peers to prevent a memory leak, or connection hang. this implementation is provided by an async await interrupt based system that wakes a thread every minute to check that each pair is active
 
 ## future implementations
+
 Syncronous version asymetric AES encryption, data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535
 
 ## Example usage
