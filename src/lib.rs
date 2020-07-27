@@ -44,6 +44,8 @@ extern crate serde_derive;
 extern crate lazy_static;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
+/// generates random strings of given length
+pub use encryption::random_string;
 pub mod error;
 use encryption::*;
 /// asyncronous implementation of the tcp networking provided in this crate

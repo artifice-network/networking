@@ -1,23 +1,27 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
-use crate::async_query::{AsyncQuery};
-use crate::Query;
+use crate::async_query::AsyncQuery;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
 use crate::ArtificeConfig;
+use crate::ConnectionRequest;
+use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header};
-use crate::{ConnectionRequest};
 use futures::{
+    future::Future,
     task::{Context, Poll},
 };
-use rsa::{RSAPrivateKey};
+use rsa::RSAPrivateKey;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
-use tokio::sync::{mpsc::{channel, Receiver, Sender}, Mutex};
 use std::sync::Arc;
+use tokio::sync::{
+    mpsc::{channel, Receiver, Sender},
+    Mutex, MutexGuard,
+};
 use tokio::{net::UdpSocket, stream::Stream};
 /// this represents a UDP connection to a peer.
 /// while that may seem oxymoronic, in practice, implementing a structure this way allows for a finer grain of
@@ -92,8 +96,127 @@ impl ArtificeStream for SllpStream {
     }
 }
 // ===================================================================================
-//                             Async Socket Listener
+//                             Convenience types
 // ===================================================================================
+#[test]
+fn sender_size() {
+    assert_eq!(std::mem::size_of::<Streams>(), 0);
+}
+/// messages sent from the socket to the main program use this format
+pub type IncomingMsg = (Vec<u8>, usize);
+/// messages sent from main to the socket use this format
+pub type OutgoingMsg = (Vec<u8>, SocketAddr);
+
+pub type NewConnection = (
+    Vec<u8>,
+    usize,
+    SocketAddr,
+    AsyncQuery<OutgoingMsg, IncomingMsg>,
+);
+/// a type alias, more or less for Arc<Mutex<HashMap<SocketAddr, Sender<IncomingMsg>>>>
+#[derive(Debug, Clone)]
+pub struct Streams {
+    value: Arc<Mutex<HashMap<SocketAddr, Sender<IncomingMsg>>>>,
+}
+impl Streams {
+    pub async fn lock(&self) -> MutexGuard<'_, HashMap<SocketAddr, Sender<IncomingMsg>>> {
+        self.value.lock().await
+    }
+}
+impl Default for Streams {
+    fn default() -> Self {
+        let value = Arc::new(Mutex::new(HashMap::new()));
+        Self { value }
+    }
+}
+// =================================================================
+//               Split Types for SLLP Socket
+// ==================================================================
+
+/// incoming half of SllpSocket allows for listening for new connections but not opening new connections
+#[derive(Debug)]
+pub struct SllpIncoming {
+    priv_key: RSAPrivateKey,
+    receiver: Receiver<NewConnection>,
+}
+impl SllpIncoming {
+    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self{
+        Self {priv_key, receiver}
+    }
+}
+impl Stream for SllpIncoming {
+    type Item = Result<ConnectionRequest<SllpStream>, NetworkError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        let (data, data_len, addr, query) = match self.receiver.poll_recv(ctx) {
+            Poll::Ready(data) => match data {
+                Some(data) => data,
+                None => return Poll::Ready(None),
+            },
+            Poll::Pending => return Poll::Pending,
+        };
+        let (dec_data, _header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
+            Ok(retval) => retval,
+            Err(e) => return Poll::Ready(Some(Err(e))),
+        };
+
+        let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
+            Ok(data_len) => data_len,
+            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
+        }) {
+            Ok(peer) => peer,
+            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
+        };
+
+        Poll::Ready(Some(Ok(ConnectionRequest::new(
+            match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
+                Ok(stream) => stream,
+                Err(e) => return Poll::Ready(Some(Err(e))),
+            },
+        ))))
+    }
+}
+impl Future for SllpIncoming {
+    type Output = Option<Result<ConnectionRequest<SllpStream>, NetworkError>>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        match self.poll_next(ctx) {
+            Poll::Ready(val) => Poll::Ready(val),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
+
+/// outgoing half of SllpSocket allows for opening connections, but not listening for new ones
+#[derive(Debug, Clone)]
+pub struct SllpOutgoing {
+    streams: Streams,
+    priv_key: RSAPrivateKey,
+    outgoing_sender: Sender<OutgoingMsg>,
+}
+impl SllpOutgoing {
+    /// could've been private, but functionality and transparency are important
+    pub fn new(streams: Streams, priv_key: RSAPrivateKey, outgoing_sender: Sender<OutgoingMsg>) -> Self{
+        Self{
+            streams,
+            priv_key,
+            outgoing_sender,
+        }
+    }
+    /// same as SllpSocket, couldn't find an easy way of putting in a trait
+    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream{
+        let (incoming_sender, incoming_receiver) = channel(1);
+        let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
+        let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
+        self.streams
+            .lock()
+            .await
+            .insert(peer.socket_addr(), incoming_sender);
+        stream.unwrap()
+    }
+}
+
+// =====================================================================
+//                          SLLP Socket
+// =====================================================================
 /// this structure provides an alternative to TCP Networking, but is not connectionless
 /// while this structure uses an owned UdpSocket for networking, it also maintains a connection through the standard means that this crate provides
 /// this is offered as a way to increase the efficiency of the network of TCP at the cost of a lack of garuntee of packet order
@@ -101,15 +224,11 @@ impl ArtificeStream for SllpStream {
 #[derive(Debug)]
 pub struct SllpSocket {
     priv_key: RSAPrivateKey,
-    receiver: Receiver<(
-        Vec<u8>,
-        usize,
-        SocketAddr,
-        AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>,
-    )>,
-    streams: Arc<Mutex<HashMap<SocketAddr, Sender<(Vec<u8>, usize)>>>>,
-    outgoing_sender: Sender<(Vec<u8>, SocketAddr)>,
+    receiver: Receiver<NewConnection>,
+    streams: Streams,
+    outgoing_sender: Sender<OutgoingMsg>,
 }
+
 impl SllpSocket {
     pub async fn from_host_data(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
@@ -128,22 +247,13 @@ impl SllpSocket {
                 .collect(),
         );
         let socket = UdpSocket::bind(socket_addr).await?;
-        let (mut request_sender, request_receiver): (Sender<(
-            Vec<u8>,
-            usize,
-            SocketAddr,
-            AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>,
-        )>, Receiver<(
-            Vec<u8>,
-            usize,
-            SocketAddr,
-            AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>,
-        )>) = channel(200);
+        let (mut request_sender, request_receiver): (Sender<NewConnection>, Receiver<NewConnection>) =
+            channel(200);
         let (outgoing_sender, mut outgoing_receiver): (
-            Sender<(Vec<u8>, SocketAddr)>,
+            Sender<OutgoingMsg>,
             Receiver<(Vec<u8>, SocketAddr)>,
         ) = channel(200);
-        let senders: Arc<Mutex<HashMap<SocketAddr, Sender<(Vec<u8>, usize)>>>> = Arc::new(Mutex::new(HashMap::new()));
+        let senders: Streams = Streams::default();
         let (mut recv_half, mut send_half) = socket.split();
         // spawn incoming
         let streams = senders.clone();
@@ -154,16 +264,26 @@ impl SllpSocket {
                 match recv_half.recv_from(&mut buffer).await {
                     Ok((data_len, addr)) => match streams.lock().await.get_mut(&addr) {
                         Some(sender) => {
-                            sender.send((buffer[0..data_len].to_vec(), data_len)).await.unwrap();
+                            sender
+                                .send((buffer[0..data_len].to_vec(), data_len))
+                                .await
+                                .unwrap();
                         }
                         None => {
                             // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
-                            let (incoming_sender, incoming_receiver): (Sender<(Vec<u8>, usize)>, Receiver<(Vec<u8>, usize)>) = channel(1);
+                            let (incoming_sender, incoming_receiver): (
+                                Sender<IncomingMsg>,
+                                Receiver<(Vec<u8>, usize)>,
+                            ) = channel(1);
                             // moved into the stream and pocesses a reciever to get incoming data, and a sender = outgoing_sender
                             // to send to the sending thread
-                            let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> = AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
+                            let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
+                                AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
                             // used to send new connection request to the impl of Stream
-                            request_sender.send((buffer[0..data_len].to_vec(), data_len, addr, foward)).await.unwrap();              
+                            request_sender
+                                .send((buffer[0..data_len].to_vec(), data_len, addr, foward))
+                                .await
+                                .unwrap();
                             // store incoming sender
                             streams.lock().await.insert(addr, incoming_sender);
                         }
@@ -186,12 +306,21 @@ impl SllpSocket {
             outgoing_sender: out_sender,
         })
     }
-    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream{
+    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
-        self.streams.lock().await.insert(peer.socket_addr(), incoming_sender);
+        self.streams
+            .lock()
+            .await
+            .insert(peer.socket_addr(), incoming_sender);
         stream.unwrap()
+    }
+    pub fn split(self) -> (SllpOutgoing, SllpIncoming){
+        (SllpOutgoing::new(self.streams, self.priv_key.clone(), self.outgoing_sender), SllpIncoming::new(self.priv_key, self.receiver))
+    }
+    pub fn incoming(&mut self) -> &mut Self {
+        self
     }
 }
 impl Stream for SllpSocket {
@@ -223,5 +352,14 @@ impl Stream for SllpSocket {
                 Err(e) => return Poll::Ready(Some(Err(e))),
             },
         ))))
+    }
+}
+impl Future for SllpSocket {
+    type Output = Option<Result<ConnectionRequest<SllpStream>, NetworkError>>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        match self.poll_next(ctx) {
+            Poll::Ready(val) => Poll::Ready(val),
+            Poll::Pending => Poll::Pending,
+        }
     }
 }

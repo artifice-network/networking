@@ -100,8 +100,8 @@ fn encrypt_test() {
     let instr = random_string(43235);
     let indata = instr.clone().into_bytes();
     //let mut outvec = Vec::new();
-    let outvec = aes_encrypt(&public_key, stream_header, &indata).unwrap();
-    let (dec_buf, _) = aes_decrypt(&private_key, &outvec).unwrap();
+    let outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
+    let (dec_buf, _) = asym_aes_decrypt(&private_key, &outvec).unwrap();
     assert_eq!(indata.len(), dec_buf.len());
     assert_eq!(indata, dec_buf);
 }
