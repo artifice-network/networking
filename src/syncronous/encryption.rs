@@ -1,13 +1,13 @@
+use crate::error::NetworkError;
 use crypto::symmetriccipher::{BlockDecryptor, BlockEncryptor};
 use rand::rngs::OsRng;
-use crate::error::NetworkError;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 /// sequencially encrypts, rather then encrypting 8 blocks at a time
-pub fn asym_aes_encrypt(pubkey: &RSAPublicKey, input: &[u8]) -> Result<Vec<u8>, NetworkError>{
+pub fn asym_aes_encrypt(pubkey: &RSAPublicKey, input: &[u8]) -> Result<Vec<u8>, NetworkError> {
     unimplemented!()
 }
 /// sequencially decrypts, rather than decrypting 8 blocks at a time
-pub fn asym_aes_decrypt(privkey: &RSAPrivateKey, input: &[u8]) -> Result<Vec<u8>, NetworkError>{
+pub fn asym_aes_decrypt(privkey: &RSAPrivateKey, input: &[u8]) -> Result<Vec<u8>, NetworkError> {
     unimplemented!()
 }
 /// encrypts purely using rsa

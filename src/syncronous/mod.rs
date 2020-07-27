@@ -1,6 +1,6 @@
 use crate::encryption::*;
-use crate::peers::*;
 use crate::error::NetworkError;
+use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
 use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
@@ -168,27 +168,26 @@ impl std::iter::Iterator for SyncHost {
                         }
                         let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
                             .expect("decryption failed");
-                        let addr = match stream.peer_addr(){
+                        let addr = match stream.peer_addr() {
                             Ok(addr) => addr,
                             Err(e) => return Some(Err(e.into())),
                         };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(ConnectionRequest::new(match SyncStream::new(
-                            stream,
-                            self.priv_key.clone(),
-                            &peer,
-                            addr,
-                        ){
-                            Ok(stream) => stream,
-                            Err(e) => return Some(Err(e.into())),
-                        })))
+                        Some(Ok(ConnectionRequest::new(
+                            match SyncStream::new(stream, self.priv_key.clone(), &peer, addr) {
+                                Ok(stream) => stream,
+                                Err(e) => return Some(Err(e.into())),
+                            },
+                        )))
                     }
                     Err(e) => Some(Err(NetworkError::from(e))),
                 },
                 None => None,
             },
-            None => Some(Err(NetworkError::UnSet("this host is outgoing only".to_string()))),
+            None => Some(Err(NetworkError::UnSet(
+                "this host is outgoing only".to_string(),
+            ))),
         }
     }
 }

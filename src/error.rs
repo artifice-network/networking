@@ -2,6 +2,7 @@ use std::array::TryFromSliceError;
 use std::error::Error;
 use std::fmt;
 use std::string::FromUtf8Error;
+use tokio::sync::mpsc::error::SendError;
 #[derive(Debug)]
 pub enum NetworkError {
     IOError(std::io::Error),
@@ -11,6 +12,7 @@ pub enum NetworkError {
     ConnectionDenied(String),
     FromSlice(TryFromSliceError),
     UnSet(String),
+    SendError(SendError<Vec<u8>>),
 }
 impl fmt::Display for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -22,6 +24,7 @@ impl fmt::Display for NetworkError {
             NetworkError::UTF8(e) => format!("{}", e),
             NetworkError::ConnectionDenied(e) => e.to_string(),
             NetworkError::FromSlice(e) => format!("{}", e),
+            NetworkError::SendError(e) => format!("{}", e),
         };
         write!(f, "{}", msg)
     }
@@ -50,5 +53,10 @@ impl From<FromUtf8Error> for NetworkError {
 impl From<TryFromSliceError> for NetworkError {
     fn from(error: TryFromSliceError) -> Self {
         NetworkError::FromSlice(error)
+    }
+}
+impl From<SendError<Vec<u8>>> for NetworkError {
+    fn from(error: SendError<Vec<u8>>) -> Self{
+        NetworkError::SendError(error)
     }
 }

@@ -299,20 +299,45 @@ impl<'a> Future for Incoming<'a> {
 pub struct AsyncPairedSocket {
     header: Header,
     priv_key: RSAPrivateKey,
-    sender: AsyncSender<Result<[u8; 65535], NetworkError>>,
+    sender: AsyncSender<Vec<u8>>,
+    receiver: Receiver<Result<([u8; 65535], usize), NetworkError>>,
     remote_addr: SocketAddr,
 }
-impl AsyncPairedSocket {}
+impl AsyncPairedSocket {
+    pub async fn send(&mut self, inbuf: &[u8]) -> Result<(), NetworkError>{
+        Ok(self.sender.send(aes_encrypt(&self.priv_key, self.header.stream_header(), inbuf)?).await?)
+    }
+    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<(), NetworkError> {
+        let result = match self.receiver.recv().await {
+            Some(result) => result,
+            None => {
+                return Err(NetworkError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "channel closed",
+                )))
+            },
+        };
+        let (data, header) = match result {
+            Ok((data, data_len)) => aes_decrypt(&self.priv_key, &data[0..data_len])?,
+            Err(e) => return Err(NetworkError::from(e)),
+        };
+        if header != self.header {
+            return Err(NetworkError::ConnectionDenied("potential man in the middle attack".to_string()));
+        }
+        outbuf.extend_from_slice(&data);
+        Ok(())
+    }
+}
 impl ArtificeStream for AsyncPairedSocket {
     type NetStream = (
-        AsyncSender<Result<[u8; 65535], NetworkError>>,
-        Receiver<Result<[u8; 65535], NetworkError>>,
+        AsyncSender<Vec<u8>>,
+        Receiver<Result<([u8; 65535], usize), NetworkError>>,
     );
     type Error = NetworkError;
     fn new(
         (sender, receiver): (
-            AsyncSender<Result<[u8; 65535], NetworkError>>,
-            Receiver<Result<[u8; 65535], NetworkError>>,
+            AsyncSender<Vec<u8>>,
+            Receiver<Result<([u8; 65535], usize), NetworkError>>,
         ),
         priv_key: RSAPrivateKey,
         peer: &ArtificePeer,
@@ -330,6 +355,7 @@ impl ArtificeStream for AsyncPairedSocket {
             header,
             priv_key,
             sender,
+            receiver,
             remote_addr,
         })
     }
@@ -391,7 +417,7 @@ impl AsyncSocketListener {
             sender,
         })
     }
-    pub async fn connect(){}
+    pub async fn connect() {}
 }
 /*impl Stream for AsyncSocketListener {
     type Item = Result<ConnectionRequest<AsyncPairedSocket>, NetworkError>;

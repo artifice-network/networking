@@ -4,8 +4,6 @@ use crypto::{
     aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
     symmetriccipher::{BlockDecryptorX8, BlockEncryptorX8},
 };
-use aes::block_cipher::generic_array::GenericArray;
-use aes::block_cipher::{BlockCipher};
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 // ==================================================================================
@@ -83,7 +81,8 @@ pub fn asym_aes_decrypt(
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
     if (data_len - rem as usize) < newlen {
-        let (next_packet, stream_header) = asym_aes_decrypt(priv_key, &input[data_len..input.len()])?;
+        let (next_packet, stream_header) =
+            asym_aes_decrypt(priv_key, &input[data_len..input.len()])?;
         header = stream_header;
         output.extend_from_slice(&next_packet);
     }
