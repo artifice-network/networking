@@ -96,7 +96,7 @@ pub use query::Query;
 
 /// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
 /// note that this module has no syncronous implementation
-//pub mod sllp;
+pub mod sllp;
 
 pub mod syncronous;
 use crate::encryption::PubKeyComp;
