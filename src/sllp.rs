@@ -8,9 +8,9 @@ use crate::asyncronous::encryption::{
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
 use crate::Layer3SocketAddr;
+use crate::PubKeyComp;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
-use crate::PubKeyComp;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -189,7 +189,7 @@ impl ArtificeStream for SllpStream {
     fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
         self.header.set_pubkey(pubkey);
         self
     }
@@ -254,7 +254,12 @@ impl Stream for SllpIncoming {
             Err(e) => return Poll::Ready(Some(Err(e))),
         };
 
-        let peer = ArtificePeer::new(header.global_peer_hash(), header.peer_hash(), addr.into(), None);
+        let peer = ArtificePeer::new(
+            header.global_peer_hash(),
+            header.peer_hash(),
+            addr.into(),
+            None,
+        );
 
         Poll::Ready(Some(Ok(ConnectionRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
@@ -355,12 +360,14 @@ impl SllpSocket {
                 match recv_half.recv_from(&mut buffer).await {
                     Ok((data_len, addr)) => match streams.lock().await.get_mut(&addr) {
                         Some(sender) => {
+                            println!("received data from existing peer");
                             sender
                                 .send((buffer[0..data_len].to_vec(), data_len))
                                 .await
                                 .unwrap();
                         }
                         None => {
+                            println!("new peer");
                             // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
                             let (incoming_sender, incoming_receiver): (
                                 Sender<IncomingMsg>,
@@ -427,13 +434,20 @@ impl Stream for SllpSocket {
             },
             Poll::Pending => return Poll::Pending,
         };
+        println!("received data from receiver");
         let (_dec_data, header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
             Ok(retval) => retval,
             Err(e) => return Poll::Ready(Some(Err(e))),
         };
+        println!("decrypted data");
 
-        let peer = ArtificePeer::new(header.global_peer_hash(), header.peer_hash(), addr.into(), None);
-
+        let peer = ArtificePeer::new(
+            header.global_peer_hash(),
+            header.peer_hash(),
+            addr.into(),
+            None,
+        );
+        println!("about to return stream");
         Poll::Ready(Some(Ok(ConnectionRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
                 Ok(stream) => stream,

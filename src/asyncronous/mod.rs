@@ -2,9 +2,9 @@
 //                                 Dependencies
 // ===================================================================
 use crate::ArtificeConfig;
+use crate::PubKeyComp;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
-use crate::PubKeyComp;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -63,7 +63,7 @@ impl ArtificeStream for AsyncStream {
     fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
         self.header.set_pubkey(pubkey);
         self
     }

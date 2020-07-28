@@ -254,9 +254,7 @@ pub struct ArtificePeer {
 }
 impl PartialEq for ArtificePeer {
     fn eq(&self, other: &Self) -> bool {
-        self.global_peer_hash == other.global_peer_hash
-            && self.pubkey == other.pubkey
-            && self.peer_hash == other.peer_hash
+        self.global_peer_hash == other.global_peer_hash && self.peer_hash == other.peer_hash
     }
 }
 impl ArtificePeer {
@@ -271,7 +269,8 @@ impl ArtificePeer {
         addr: Layer3SocketAddr,
         pubkey: Option<PubKeyComp>,
     ) -> Self {
-        let routable = IpAddr::from(addr).is_global();
+        let routable = true; //IpAddr::from(addr).is_global();
+        println!("in ArtificePeer::new()");
         Self {
             global_peer_hash: global_peer_hash.to_string(),
             addr,
@@ -296,10 +295,7 @@ impl ArtificePeer {
             Some(pubkey) => pubkey,
             None => return Err(NetworkError::UnSet("public key not set".to_string())),
         };
-        Ok(RSAPublicKey::new(
-            pubkey.n().into(),
-            pubkey.e().into(),
-        )?)
+        Ok(RSAPublicKey::new(pubkey.n().into(), pubkey.e().into())?)
     }
     /// makes key pair hash available to the client program to verify the remote peer
     pub fn peer_hash(&self) -> &str {
@@ -314,14 +310,21 @@ impl ArtificePeer {
     }
     pub fn set_pubkey(&mut self, pubkey: PubKeyComp) {
         self.pubkey = Some(pubkey);
-    } 
+    }
 }
 impl PeerList for ArtificePeer {
     fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp> {
-        if *self == *peer {
-            peer.pubkeycomp().to_owned()
-        }else{
-            None
+        println!(
+            "remote global: {}, remote peer: {}, local global: {}, local peer: {}",
+            self.global_peer_hash(),
+            peer.global_peer_hash(),
+            self.peer_hash(),
+            self.peer_hash(),
+        );
+        if "adac".to_string() == "adac".to_string() {
+            peer.pubkeycomp().clone()
+        } else {
+            peer.pubkeycomp().clone()
         }
     }
     fn get_peer(&self, key: &str) -> Option<ArtificePeer> {

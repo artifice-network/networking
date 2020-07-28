@@ -115,7 +115,7 @@ use std::{
 /// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
     use std::fs::File;
-    use std::io::{Read};
+    use std::io::Read;
     let mut peer_string = String::new();
     let mut file = File::open("peer.json").unwrap();
     file.read_to_string(&mut peer_string).unwrap();
@@ -124,7 +124,7 @@ pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
     let mut config_file = File::open("host.json").unwrap();
     config_file.read_to_string(&mut config_string).unwrap();
     let config = serde_json::from_str(&config_string).unwrap();
-    
+
     (peer, config)
 }
 /// used to build and configure the local host
@@ -259,7 +259,7 @@ impl Header {
     pub fn set_len(&mut self, len: usize) {
         self.packet_len = len;
     }
-    pub fn set_pubkey(&mut self, pubkey: PubKeyComp){
+    pub fn set_pubkey(&mut self, pubkey: PubKeyComp) {
         self.peer.set_pubkey(pubkey);
     }
 }
@@ -284,10 +284,10 @@ impl StreamHeader {
             remander: 0,
         }
     }
-    pub fn global_peer_hash(&self) -> &str{
+    pub fn global_peer_hash(&self) -> &str {
         &self.global_hash
     }
-    pub fn peer_hash(&self) -> &str{
+    pub fn peer_hash(&self) -> &str {
         &self.peer_hash
     }
     pub fn key(&self) -> &[u8] {
@@ -338,7 +338,7 @@ impl StreamHeader {
     }
 }
 impl From<&Header> for StreamHeader {
-    fn from(header: &Header) -> Self{
+    fn from(header: &Header) -> Self {
         StreamHeader::new(
             header.peer().global_peer_hash(),
             header.peer().peer_hash(),

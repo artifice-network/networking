@@ -2,10 +2,10 @@ use crate::error::NetworkError;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
+use crate::PubKeyComp;
 use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
 pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
-use crate::PubKeyComp;
 use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
@@ -49,7 +49,7 @@ impl ArtificeStream for SyncStream {
     fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
         self.header.set_pubkey(pubkey);
         self
     }
