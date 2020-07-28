@@ -49,7 +49,7 @@ impl From<&BigNum> for BigUint {
     }
 }
 impl PartialEq<BigUint> for BigNum {
-    fn eq(&self, other: &BigUint) -> bool{
+    fn eq(&self, other: &BigUint) -> bool {
         self.value == other.to_bytes_be()
     }
 }
@@ -83,12 +83,12 @@ impl PubKeyComp {
     }
 }
 impl PartialEq<RSAPublicKey> for PubKeyComp {
-    fn eq(&self, pubkey: &RSAPublicKey) -> bool{
+    fn eq(&self, pubkey: &RSAPublicKey) -> bool {
         self.n == *pubkey.n() && self.e == *pubkey.e()
     }
 }
 impl PartialEq<PubKeyComp> for RSAPublicKey {
-    fn eq(&self, pubkey: &PubKeyComp) -> bool{
+    fn eq(&self, pubkey: &PubKeyComp) -> bool {
         *self.n() == pubkey.n && *self.e() == pubkey.e
     }
 }
@@ -103,8 +103,11 @@ impl From<&RSAPrivateKey> for PubKeyComp {
     }
 }
 impl From<&PrivKeyComp> for PubKeyComp {
-    fn from(priv_key: &PrivKeyComp) -> Self{
-        Self { n: priv_key.n().to_owned(), e: priv_key.e().to_owned()}
+    fn from(priv_key: &PrivKeyComp) -> Self {
+        Self {
+            n: priv_key.n().to_owned(),
+            e: priv_key.e().to_owned(),
+        }
     }
 }
 /// private key version of PubKeyComp
