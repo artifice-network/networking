@@ -17,7 +17,7 @@ async fn run() -> Result<(), ExampleError> {
     let mut socket = SllpSocket::from_host_data(&config).await.unwrap();
     // peer can be anything that implements PeerList
     while let Some(Ok(strm)) = socket.incoming().await {
-        let stream = unsafe { strm.unverify() };
+        let stream = strm.verify(&peer).unwrap();
         println!("new connection verified");
         run_server(stream).await.unwrap();
     }
