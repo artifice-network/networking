@@ -10,6 +10,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     while let Some(strm) = socket.incoming().await {
         let mut stream = strm?.verify(&peer)?;
         tokio::spawn(async move {
+            println!("new connection");
             loop {
                 let mut invec = Vec::new();
                 stream.recv(&mut invec).await.unwrap();

@@ -6,6 +6,7 @@ use std::error::Error;
 use std::fmt;
 use tokio::runtime::{Handle, Runtime};
 use networking::asyncronous::AsyncSend;
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 
 #[derive(Debug)]
 pub enum ExampleError {
@@ -31,8 +32,11 @@ impl From<networking::error::NetworkError> for ExampleError {
 }
 
 async fn run(_handle: Handle) -> Result<(), ExampleError> {
-    let (peer, config) = test_config();
+    let (mut peer, config) = test_config();
     let socket = SllpSocket::from_host_data(&config).await.unwrap();
+    // the test peers address is localhost, but this example can only be run between two computersheader)
+    // file in ip with remote ip
+    peer.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), 6464));
     let mut stream = socket.connect(&peer).await;
     println!("connected");
     let mut cam = videoio::VideoCapture::new(0, videoio::CAP_ANY)?; // 0 is the default camera
