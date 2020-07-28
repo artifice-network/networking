@@ -7,6 +7,7 @@ use networking::{
 use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
 use std::error::Error;
 use tokio::runtime::Runtime;
+use networking::asyncronous::AsyncRecv;
 
 fn main() {
     let mut runtime = Runtime::new().unwrap();

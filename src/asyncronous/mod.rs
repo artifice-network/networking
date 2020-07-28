@@ -5,6 +5,8 @@ use crate::ArtificeConfig;
 use crate::PubKeyComp;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
+use async_trait::async_trait;
+use std::error::Error;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -71,8 +73,10 @@ impl ArtificeStream for AsyncStream {
 // ====================================== ====================================================
 //                                    Impl Async Stream
 // =============================================================================================
-impl AsyncStream {
-    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
+#[async_trait]
+impl AsyncRecv for AsyncStream {
+    type Error = NetworkError;
+    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut buf = Vec::new();
         let mut data_len = self.stream.read(&mut buffer).await?;
@@ -107,8 +111,12 @@ impl AsyncStream {
         outbuf.append(&mut buf);
         Ok(buf.len())
     }
+}
+#[async_trait]
+impl AsyncSend for AsyncStream {
+    type Error = NetworkError;
     /// send data to the peer
-    pub async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
+    async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
         let key = match self.peer().pubkeycomp() {
             Some(pubkey) => pubkey,
             None => return Err(NetworkError::UnSet("public key not set".to_string())),
@@ -119,6 +127,9 @@ impl AsyncStream {
         let enc_data = aes_encrypt(&public_key, stream_header, &buffer)?;
         Ok(self.stream.write(&enc_data).await?)
     }
+}
+impl AsyncDataStream for AsyncStream {
+    type Error = NetworkError;
 }
 // ===================================================================================
 //                                 Async Host
@@ -283,3 +294,19 @@ impl<'a> Future for Incoming<'a> {
         Stream::poll_next(self, ctx)
     }
 }
+#[async_trait]
+pub trait AsyncSend {
+    type Error: Error;
+    async fn send(&mut self, outbuf: &[u8]) -> Result<usize, Self::Error>;
+}
+#[async_trait]
+pub trait AsyncRecv {
+    type Error: Error;
+    async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<usize, Self::Error>;
+}
+#[async_trait]
+pub trait AsyncDataStream: AsyncSend + AsyncRecv {
+    type Error: Error;
+}
+#[async_trait]
+pub trait AsyncNetworkHost {}

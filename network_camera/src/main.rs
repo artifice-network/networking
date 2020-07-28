@@ -5,6 +5,8 @@ use opencv::{core, imgcodecs::*, prelude::*, videoio};
 use std::error::Error;
 use std::fmt;
 use tokio::runtime::{Handle, Runtime};
+use networking::asyncronous::AsyncSend;
+
 #[derive(Debug)]
 pub enum ExampleError {
     OpencvError(opencv::Error),
