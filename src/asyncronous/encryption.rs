@@ -60,7 +60,7 @@ pub fn asym_aes_encrypt(
 // ================================================================================
 pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
-    input: &mut [u8],
+    input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
     assert!(input.len() < (65536));
     // create output vector

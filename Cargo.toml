@@ -24,6 +24,3 @@ tokio = {version = "0.2.22", features = ["full"]}
 lazy_static = "1.4.0"
 aes = "0.4.0"
 async-trait = "0.1.36"
-
-[dev-dependencies]
-opencv = {version = "0.37", features = ["buildtime-bindgen"]}
