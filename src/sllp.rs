@@ -358,34 +358,37 @@ impl SllpSocket {
             loop {
                 let mut buffer: [u8; 65535] = [0; 65535];
                 match recv_half.recv_from(&mut buffer).await {
-                    Ok((data_len, addr)) => match streams.lock().await.get_mut(&addr) {
-                        Some(sender) => {
-                            println!("received data from existing peer");
-                            sender
-                                .send((buffer[0..data_len].to_vec(), data_len))
-                                .await
-                                .unwrap();
+                    Ok((data_len, addr)) => {
+                        let mut senders = streams.lock().await;
+                        match senders.get_mut(&addr) {
+                            Some(sender) => {
+                                println!("received data from existing peer");
+                                sender
+                                    .send((buffer[0..data_len].to_vec(), data_len))
+                                    .await
+                                    .unwrap();
+                            }
+                            None => {
+                                println!("new peer");
+                                // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
+                                let (incoming_sender, incoming_receiver): (
+                                    Sender<IncomingMsg>,
+                                    Receiver<(Vec<u8>, usize)>,
+                                ) = channel(1);
+                                // moved into the stream and pocesses a reciever to get incoming data, and a sender = outgoing_sender
+                                // to send to the sending thread
+                                let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
+                                    AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
+                                // used to send new connection request to the impl of Stream
+                                request_sender
+                                    .send((buffer[0..data_len].to_vec(), data_len, addr, foward))
+                                    .await
+                                    .unwrap();
+                                // store incoming sender
+                                senders.insert(addr, incoming_sender);
+                            }
                         }
-                        None => {
-                            println!("new peer");
-                            // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
-                            let (incoming_sender, incoming_receiver): (
-                                Sender<IncomingMsg>,
-                                Receiver<(Vec<u8>, usize)>,
-                            ) = channel(1);
-                            // moved into the stream and pocesses a reciever to get incoming data, and a sender = outgoing_sender
-                            // to send to the sending thread
-                            let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
-                                AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
-                            // used to send new connection request to the impl of Stream
-                            request_sender
-                                .send((buffer[0..data_len].to_vec(), data_len, addr, foward))
-                                .await
-                                .unwrap();
-                            // store incoming sender
-                            streams.lock().await.insert(addr, incoming_sender);
-                        }
-                    },
+                    }
                     Err(e) => panic!("error: {}", e),
                 }
             }
