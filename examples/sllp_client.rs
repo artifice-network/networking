@@ -9,5 +9,6 @@ async fn main() -> Result<(), Box<dyn Error>> {
     let mut socket = SllpSocket::from_host_data(&config).await?;
     peer.set_socket_addr((Layer3Addr::newv4(127,0,0,1), 6464).into());
     let mut stream = socket.connect(&peer).await;
+    stream.send(b"hello world").await.unwrap();
     Ok(())
 }
