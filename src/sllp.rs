@@ -48,7 +48,7 @@ impl<'a> StreamRecv<'a> {
             receiver,
         }
     }
-    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<(), NetworkError> {
+    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let (data, data_len) = match self.receiver.recv().await {
             Some(result) => result,
             None => {
@@ -65,7 +65,7 @@ impl<'a> StreamRecv<'a> {
             ));
         }
         outbuf.extend_from_slice(&dec_data);
-        Ok(())
+        Ok(data_len)
     }
 }
 
@@ -128,7 +128,7 @@ impl SllpStream {
             ))
             .await?)
     }
-    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<(), NetworkError> {
+    pub async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let (data, data_len) = match self.query.recv().await {
             Some(result) => result,
             None => {
@@ -145,7 +145,7 @@ impl SllpStream {
             ));
         }
         outbuf.extend_from_slice(&dec_data);
-        Ok(())
+        Ok(data_len)
     }
     pub fn split(&mut self) -> (StreamSend, StreamRecv) {
         let (sender, receiver) = self.query.ref_split();
@@ -362,14 +362,12 @@ impl SllpSocket {
                         let mut senders = streams.lock().await;
                         match senders.get_mut(&addr) {
                             Some(sender) => {
-                                println!("received data from existing peer");
                                 sender
                                     .send((buffer[0..data_len].to_vec(), data_len))
                                     .await
                                     .unwrap();
                             }
                             None => {
-                                println!("new peer");
                                 // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
                                 let (incoming_sender, incoming_receiver): (
                                     Sender<IncomingMsg>,
@@ -437,12 +435,10 @@ impl Stream for SllpSocket {
             },
             Poll::Pending => return Poll::Pending,
         };
-        println!("received data from receiver");
         let (_dec_data, header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
             Ok(retval) => retval,
             Err(e) => return Poll::Ready(Some(Err(e))),
         };
-        println!("decrypted data");
 
         let peer = ArtificePeer::new(
             header.global_peer_hash(),
@@ -450,7 +446,6 @@ impl Stream for SllpSocket {
             addr.into(),
             None,
         );
-        println!("about to return stream");
         Poll::Ready(Some(Ok(ConnectionRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
                 Ok(stream) => stream,

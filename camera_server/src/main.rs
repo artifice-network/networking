@@ -1,7 +1,7 @@
 // this crate is an example of sending a large amount of data through this network
 // in the future it will implement data transmisions with lengths greater then 65535
 use networking::{
-    asyncronous::{AsyncHost, AsyncStream},
+    sllp::{SllpSocket, SllpStream},
     test_config,
 };
 use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
@@ -14,16 +14,16 @@ fn main() {
 }
 async fn run() -> Result<(), ExampleError> {
     let (peer, config) = test_config();
-    let mut host = AsyncHost::from_host_config(&config).await.unwrap();
+    let mut socket = SllpSocket::from_host_data(&config).await.unwrap();
     // peer can be anything that implements PeerList
-    while let Some(Ok(strm)) = host.incoming()?.await {
-        let stream = strm.verify(&peer)?;
+    while let Some(Ok(strm)) = socket.incoming().await {
+        let stream = unsafe { strm.unverify() };
         println!("new connection verified");
         run_server(stream).await.unwrap();
     }
     Ok(())
 }
-async fn run_server(mut socket: AsyncStream) -> Result<(), ExampleError> {
+async fn run_server(mut socket: SllpStream) -> Result<(), ExampleError> {
     let window = "video capture";
     println!("before loop");
     highgui::named_window(window, 1)?;

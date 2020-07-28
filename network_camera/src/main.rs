@@ -1,6 +1,6 @@
 // the point of this example is to show large data transimissions over the network
 // future example implementation will support data transmission greater then 65535
-use networking::{asyncronous::AsyncHost, test_config};
+use networking::{sllp::SllpSocket, test_config};
 use opencv::{core, imgcodecs::*, prelude::*, videoio};
 use std::error::Error;
 use std::fmt;
@@ -30,8 +30,8 @@ impl From<networking::error::NetworkError> for ExampleError {
 
 async fn run(_handle: Handle) -> Result<(), ExampleError> {
     let (peer, config) = test_config();
-    let host = AsyncHost::client_only(&config).await.unwrap();
-    let mut socket = host.connect(peer).await.unwrap();
+    let socket = SllpSocket::from_host_data(&config).await.unwrap();
+    let mut stream = socket.connect(&peer).await;
     println!("connected");
     let mut cam = videoio::VideoCapture::new(0, videoio::CAP_ANY)?; // 0 is the default camera
     let opened = videoio::VideoCapture::is_opened(&cam)?;
@@ -48,7 +48,7 @@ async fn run(_handle: Handle) -> Result<(), ExampleError> {
         let mut outbuf: core::Vector<u8> = core::Vector::with_capacity(640 * 480 * 3);
         if frame.size()?.width > 0 {
             imencode(".jpg", &frame, &mut outbuf, &params)?;
-            socket.send(&outbuf.to_vec()).await?;
+            stream.send(&outbuf.to_vec()).await?;
         }
     }
 }

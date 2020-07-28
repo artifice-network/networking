@@ -1,0 +1,12 @@
+[package]
+name = "camera_server"
+version = "0.1.0"
+authors = ["Julian Lazaras <umbrasdracodominus@gmail.com>"]
+edition = "2018"
+
+# See more keys and their definitions at https://doc.rust-lang.org/cargo/reference/manifest.html
+
+[dependencies]
+tokio = "*"
+networking = {path = "../"}
+opencv = {version = "0.37", features = ["buildtime-bindgen"]}
