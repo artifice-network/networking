@@ -6,11 +6,11 @@ use crate::PubKeyComp;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
 use async_trait::async_trait;
-use std::error::Error;
 use futures::{
     future::Future,
     task::{Context, Poll},
 };
+use std::error::Error;
 pub mod encryption;
 use encryption::{asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt};
 use rsa::{RSAPrivateKey, RSAPublicKey};

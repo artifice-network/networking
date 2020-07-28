@@ -2,17 +2,17 @@
 //                                 Dependencies
 // ===================================================================
 use crate::async_query::AsyncQuery;
-use async_trait::async_trait;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
+use crate::asyncronous::{AsyncRecv, AsyncSend};
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
 use crate::Layer3SocketAddr;
-use crate::asyncronous::{AsyncSend, AsyncRecv};
 use crate::PubKeyComp;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
+use async_trait::async_trait;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -53,7 +53,7 @@ impl<'a> StreamRecv<'a> {
     }
 }
 #[async_trait]
-impl<'a> AsyncRecv for StreamRecv<'a>{
+impl<'a> AsyncRecv for StreamRecv<'a> {
     type Error = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let (data, data_len) = match self.receiver.recv().await {
@@ -100,11 +100,10 @@ impl<'a> StreamSend<'a> {
     }
 }
 #[async_trait]
-impl<'a> AsyncSend for StreamSend<'a>{
-    type Error = NetworkError; 
+impl<'a> AsyncSend for StreamSend<'a> {
+    type Error = NetworkError;
     async fn send(&mut self, inbuf: &[u8]) -> Result<usize, NetworkError> {
-        self
-            .sender
+        self.sender
             .send((
                 aes_encrypt(&self.pubkey, self.header.clone(), inbuf)?,
                 self.remote_addr,
@@ -134,8 +133,7 @@ pub struct SllpStream {
 impl AsyncSend for SllpStream {
     type Error = NetworkError;
     async fn send(&mut self, inbuf: &[u8]) -> Result<usize, NetworkError> {
-        self
-            .query
+        self.query
             .send((
                 aes_encrypt(&self.priv_key, self.header.stream_header(), inbuf)?,
                 self.remote_addr,
@@ -167,7 +165,7 @@ impl AsyncRecv for SllpStream {
         Ok(data_len)
     }
 }
-impl SllpStream{
+impl SllpStream {
     pub fn split(&mut self) -> (StreamSend, StreamRecv) {
         let (sender, receiver) = self.query.ref_split();
         (

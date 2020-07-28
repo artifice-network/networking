@@ -346,6 +346,11 @@ impl From<&Header> for StreamHeader {
         )
     }
 }
+impl From<Header> for StreamHeader {
+    fn from(header: Header) -> Self{
+        StreamHeader::from(&header)
+    }
+}
 #[test]
 fn header_to_raw_from_raw() {
     let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);

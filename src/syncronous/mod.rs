@@ -10,13 +10,13 @@ use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    sync::{mpsc::Sender, Arc, Mutex},
+    sync::{mpsc::Sender},
 };
 /// the TcpStream version of the artifice network, implements encryption automatically in its implementation of std::io::Write, and std::io::Read
-#[derive(Debug, Clone)]
+#[derive(Debug)]
 pub struct SyncStream {
     header: Header,
-    stream: Arc<Mutex<TcpStream>>,
+    stream: TcpStream,
     priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
@@ -32,7 +32,7 @@ impl ArtificeStream for SyncStream {
         let header = Header::new(peer);
         Ok(Self {
             header,
-            stream: Arc::new(Mutex::new(stream)),
+            stream,
             priv_key,
             remote_addr,
         })
@@ -56,93 +56,52 @@ impl ArtificeStream for SyncStream {
 }
 impl SyncStream {
     /// implented in place of std::io::Read, because reading to empty vec fails
-    pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> std::io::Result<usize> {
+    pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
-        let mut stream = self.stream.lock().unwrap();
         let mut buf = Vec::new();
-        let mut data_len = stream.read(&mut buffer)?;
+        let mut data_len = self.stream.read(&mut buffer)?;
         while data_len == 0 {
-            data_len = stream.read(&mut buffer)?;
+            data_len = self.stream.read(&mut buffer)?;
         }
-        let dec_data = match rsa_decrypt(&self.priv_key, &buffer, data_len) {
-            Ok(dec_data) => dec_data,
-            Err(_e) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "decryption failure",
-                ));
-            }
-        };
-        let header_len = u16::from_be_bytes([dec_data[0], dec_data[1]]) as usize;
-        let header_str = match String::from_utf8(dec_data[2..header_len + 2].to_vec()) {
-            Ok(header_str) => header_str,
-            Err(_e) => {
-                return Err(std::io::Error::new(
-                    std::io::ErrorKind::PermissionDenied,
-                    "couldn't read input as string",
-                ))
-            }
-        };
-        //Ok((serde_json::from_str(&header_str).expect("couldn't deserialize header"), header_len))
-        let header: Header = serde_json::from_str(&header_str).expect("coun't deserialize header");
-        // verify that a man in the middle attack hasn't occured
-        // let (header, header_len) = get_headers(&self.priv_key, &dec_data, data_len)?;
+        let (dec_data, mut header) = asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
         if header != self.header {
-            return Err(std::io::Error::new(
-                std::io::ErrorKind::PermissionDenied,
-                "potential man in the middle attempt",
+            return Err(NetworkError::ConnectionDenied(
+                "headers don't match".to_string(),
             ));
         }
         // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() + header_len < 65535 {
-            buf.extend_from_slice(&dec_data[header_len + 2..header_len + header.packet_len() + 2]);
+        if header.packet_len() < 65536 {
+            buf.extend_from_slice(&dec_data[0..header.data_len()]);
         } else {
-            buf.extend_from_slice(&dec_data[header_len..65535]);
+            buf.extend_from_slice(&dec_data[0..65535]);
         }
-        //hadle further packets
-        while data_len < header.packet_len() + header_len as usize {
-            let mut temp_len = stream.read(&mut buffer)?;
+        //hadle further packetsheader_len +
+        while data_len < header.packet_len() {
+            let mut temp_len = self.stream.read(&mut buffer)?;
             while temp_len == 0 {
-                temp_len = stream.read(&mut buffer)?;
+                temp_len = self.stream.read(&mut buffer)?;
             }
+            let (dec_buffer, stream_header) =
+                asym_aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            header = stream_header;
             data_len += temp_len;
-            let dec_buffer = match rsa_decrypt(&self.priv_key, &buffer, temp_len) {
-                Ok(dec_buffer) => dec_buffer,
-                Err(_e) => {
-                    return Err(std::io::Error::new(
-                        std::io::ErrorKind::PermissionDenied,
-                        "unable to decrypt data",
-                    ));
-                }
-            };
             buffer = [0; 65535];
             buf.extend_from_slice(&dec_buffer);
         }
-        println!("buf len: {}", buf.len());
-        let string = String::from_utf8(buf.clone()).unwrap();
-        println!("got message: {} from server", string);
         outbuf.append(&mut buf);
         Ok(buf.len())
     }
     /// send data to the peer
-    pub fn send(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
-        println!("buf: {:?}", buf);
+    pub fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
         let key = match self.peer().pubkeycomp() {
             Some(pubkey) => pubkey,
             None => return Err(NetworkError::UnSet("public key not set".to_string())),
         };
-        let public_key = RSAPublicKey::new(key.n().into(), key.e().into()).unwrap();
-        let mut buffer = Vec::new();
-        self.header.set_len(buf.len());
-        let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
-        let header_len: [u8; 2] = (bytes.len() as u16).to_be_bytes();
-        buffer.push(header_len[0]);
-        buffer.push(header_len[1]);
-        buffer.extend_from_slice(bytes.as_slice());
-        buffer.extend_from_slice(buf);
-        let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
-        let mut stream = self.stream.lock().unwrap();
-        Ok(stream.write(&enc_data)?)
+        let public_key = RSAPublicKey::new(key.n().into(), key.e().into())?;
+        self.header.set_len(buffer.len());
+        let stream_header = self.header.stream_header();
+        let enc_data = asym_aes_encrypt(&public_key, stream_header, &buffer)?;
+        Ok(self.stream.write(&enc_data)?)
     }
 }
 /// host object, artifice network implementation of TcpListener
@@ -166,7 +125,7 @@ impl std::iter::Iterator for SyncHost {
                         while data_len == 0 {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
-                        let dec_data = rsa_decrypt(&self.priv_key, &buffer[0..data_len], data_len)
+                        let (dec_data, _header) = asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])
                             .expect("decryption failed");
                         let addr = match stream.peer_addr() {
                             Ok(addr) => addr,
@@ -226,7 +185,7 @@ impl SyncHost {
         let public_key =
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
-        let enc_data = rsa_encrypt(&public_key, &data).unwrap();
+        let enc_data = asym_aes_encrypt(&public_key, Header::new(&peer).into(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;
         Ok(SyncStream::new(stream, self.priv_key.clone(), &peer, addr)?)
