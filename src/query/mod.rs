@@ -10,4 +10,5 @@ pub trait Query {
     fn create(sender: Self::Left, receiver: Self::Right) -> Self;
     /// split a query into its components
     fn split(self) -> (Self::Left, Self::Right);
+    fn ref_split(&mut self) -> (&mut Self::Left, &mut Self::Right);
 }

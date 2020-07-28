@@ -13,7 +13,7 @@ use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use rsa::{RSAPrivateKey, RSAPublicKey};
+use rsa::{RSAPrivateKey};
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -28,14 +28,14 @@ use tokio::{net::UdpSocket, stream::Stream};
 // ==========================================================================
 /// send half of SllpStream
 #[derive(Debug)]
-pub struct StreamRecv {
-    header: Header,
-    priv_key: RSAPrivateKey,
-    receiver: Receiver<IncomingMsg>,
+pub struct StreamRecv<'a> {
+    header: &'a mut Header,
+    priv_key: &'a RSAPrivateKey,
+    receiver: &'a mut Receiver<IncomingMsg>,
 }
 
-impl StreamRecv {
-    pub fn new(header: Header, priv_key: RSAPrivateKey, receiver: Receiver<IncomingMsg>) -> Self {
+impl<'a> StreamRecv<'a> {
+    pub fn new(header: &'a mut Header, priv_key: &'a RSAPrivateKey, receiver: &'a mut Receiver<IncomingMsg>) -> Self {
         Self {
             header,
             priv_key,
@@ -53,7 +53,7 @@ impl StreamRecv {
             }
         };
         let (dec_data, header) = aes_decrypt(&self.priv_key, &data[0..data_len])?;
-        if header != self.header {
+        if header != self.header.stream_header() {
             return Err(NetworkError::ConnectionDenied(
                 "potential man in the middle attack".to_string(),
             ));
@@ -64,19 +64,19 @@ impl StreamRecv {
 }
 
 /// send half of SllpStream
-#[derive(Debug, Clone)]
-pub struct StreamSend {
+#[derive(Debug)]
+pub struct StreamSend<'a> {
     header: StreamHeader,
-    pubkey: RSAPublicKey,
+    pubkey: &'a RSAPrivateKey,
     remote_addr: SocketAddr,
-    sender: Sender<OutgoingMsg>,
+    sender: &'a mut Sender<OutgoingMsg>,
 }
-impl StreamSend {
+impl<'a> StreamSend<'a> {
     pub fn new(
         header: StreamHeader,
-        pubkey: RSAPublicKey,
+        pubkey: &'a RSAPrivateKey,
         remote_addr: SocketAddr,
-        sender: Sender<OutgoingMsg>,
+        sender: &'a mut Sender<OutgoingMsg>,
     ) -> Self {
         Self {
             header,
@@ -141,16 +141,16 @@ impl SllpStream {
         outbuf.extend_from_slice(&dec_data);
         Ok(())
     }
-    pub fn split(self) -> (StreamSend, StreamRecv) {
-        let (sender, receiver) = self.query.split();
+    pub fn split(&mut self) -> (StreamSend, StreamRecv) {
+        let (sender, receiver) = self.query.ref_split();
         (
             StreamSend::new(
                 self.header.stream_header(),
-                RSAPublicKey::from(&self.priv_key),
+                &self.priv_key,
                 self.remote_addr,
                 sender,
             ),
-            StreamRecv::new(self.header, self.priv_key, receiver),
+            StreamRecv::new(&mut self.header, &self.priv_key, receiver),
         )
     }
 }
