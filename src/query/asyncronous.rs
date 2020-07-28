@@ -37,7 +37,7 @@ impl<S, R> Query for AsyncQuery<S, R> {
     fn split(self) -> (Self::Left, Self::Right) {
         (self.sender, self.receiver)
     }
-    fn ref_split(&mut self) -> (&mut Self::Left, &mut Self::Right){
+    fn ref_split(&mut self) -> (&mut Self::Left, &mut Self::Right) {
         (&mut self.sender, &mut self.receiver)
     }
 }

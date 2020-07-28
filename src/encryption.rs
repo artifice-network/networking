@@ -32,28 +32,30 @@ pub fn generate_key(password: &[u8]) -> Vec<u8> {
 }*/
 
 /// the purpose of this structure is to provide an implementation of BigUint, as is used by the rsa crate, that can be serialized for the sake of storing an retriving rsa keys
-#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BigNum {
     value: Vec<u8>,
-}
-impl BigNum {
-    pub fn from_biguint(biguint: BigUint) -> Self {
-        Self {
-            value: biguint.to_bytes_be(),
-        }
-    }
-    pub fn to_inner(&self) -> BigUint {
-        BigUint::from_bytes_be(&self.value)
-    }
-    pub fn into_inner(self) -> BigUint {
-        BigUint::from_bytes_be(&self.value)
-    }
 }
 impl From<&BigUint> for BigNum {
     fn from(num: &BigUint) -> Self {
         Self {
             value: num.to_bytes_be(),
         }
+    }
+}
+impl From<&BigNum> for BigUint {
+    fn from(num: &BigNum) -> Self {
+        BigUint::from_bytes_be(&num.value)
+    }
+}
+impl PartialEq<BigUint> for BigNum {
+    fn eq(&self, other: &BigUint) -> bool{
+        self.value == other.to_bytes_be()
+    }
+}
+impl PartialEq<BigNum> for BigUint {
+    fn eq(&self, other: &BigNum) -> bool {
+        self.to_bytes_be() == other.value
     }
 }
 
@@ -73,11 +75,21 @@ impl PubKeyComp {
     pub fn from_parts(n: BigNum, e: BigNum) -> Self {
         Self { n, e }
     }
-    pub fn n(&self) -> BigUint {
-        self.n.clone().into_inner()
+    pub fn n(&self) -> &BigNum {
+        &self.n
     }
-    pub fn e(&self) -> BigUint {
-        self.e.clone().into_inner()
+    pub fn e(&self) -> &BigNum {
+        &self.e
+    }
+}
+impl PartialEq<RSAPublicKey> for PubKeyComp {
+    fn eq(&self, pubkey: &RSAPublicKey) -> bool{
+        self.n == *pubkey.n() && self.e == *pubkey.e()
+    }
+}
+impl PartialEq<PubKeyComp> for RSAPublicKey {
+    fn eq(&self, pubkey: &PubKeyComp) -> bool{
+        *self.n() == pubkey.n && *self.e() == pubkey.e
     }
 }
 impl From<&RSAPublicKey> for PubKeyComp {
@@ -90,6 +102,11 @@ impl From<&RSAPrivateKey> for PubKeyComp {
         Self::from(&RSAPublicKey::from(private_key))
     }
 }
+impl From<&PrivKeyComp> for PubKeyComp {
+    fn from(priv_key: &PrivKeyComp) -> Self{
+        Self { n: priv_key.n().to_owned(), e: priv_key.e().to_owned()}
+    }
+}
 /// private key version of PubKeyComp
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct PrivKeyComp {
@@ -99,17 +116,17 @@ pub struct PrivKeyComp {
     primes: Vec<BigNum>,
 }
 impl PrivKeyComp {
-    pub fn n(&self) -> BigNum {
-        self.n.clone()
+    pub fn n(&self) -> &BigNum {
+        &self.n
     }
-    pub fn e(&self) -> BigNum {
-        self.e.clone()
+    pub fn e(&self) -> &BigNum {
+        &self.e
     }
-    pub fn d(&self) -> BigNum {
-        self.d.clone()
+    pub fn d(&self) -> &BigNum {
+        &self.d
     }
-    pub fn primes(&self) -> Vec<BigNum> {
-        self.primes.clone()
+    pub fn primes(&self) -> &Vec<BigNum> {
+        &self.primes
     }
     pub fn into_components(self) -> (BigNum, BigNum, BigNum, Vec<BigNum>) {
         (self.n, self.e, self.d, self.primes)
@@ -120,28 +137,34 @@ impl PrivKeyComp {
         let mut rng = OsRng;
         let bits = 2048;
         let private_key = RSAPrivateKey::new(&mut rng, bits)?;
-        let d = BigNum::from_biguint(private_key.d().clone());
+        let d = BigNum::from(private_key.d());
         let primes: Vec<BigNum> = private_key
             .primes()
             .iter()
-            .map(|p| BigNum::from_biguint(p.clone()))
+            .map(|p| BigNum::from(p))
             .collect();
-        let n = BigNum::from_biguint(private_key.n().clone());
-        let e = BigNum::from_biguint(private_key.e().clone());
+        let n = BigNum::from(private_key.n());
+        let e = BigNum::from(private_key.e());
         Ok(Self { n, e, d, primes })
     }
 }
 impl From<&RSAPrivateKey> for PrivKeyComp {
     fn from(key: &RSAPrivateKey) -> Self {
-        let primes = key
-            .primes()
-            .iter()
-            .map(|p| BigNum::from_biguint(p.clone()))
-            .collect();
-        let d = BigNum::from_biguint(key.d().clone());
+        let primes = key.primes().iter().map(|p| BigNum::from(p)).collect();
+        let d = BigNum::from(key.d());
         let public_key = RSAPublicKey::from(key);
-        let n = BigNum::from_biguint(public_key.n().clone());
-        let e = BigNum::from_biguint(public_key.e().clone());
+        let n = BigNum::from(public_key.n());
+        let e = BigNum::from(public_key.e());
         Self { n, e, d, primes }
+    }
+}
+impl From<&PrivKeyComp> for RSAPrivateKey {
+    fn from(comp: &PrivKeyComp) -> RSAPrivateKey {
+        RSAPrivateKey::from_components(
+            comp.n().into(),
+            comp.e().into(),
+            comp.d().into(),
+            comp.primes.iter().map(|p| BigUint::from(p)).collect(),
+        )
     }
 }

@@ -105,7 +105,7 @@ impl AsyncStream {
     /// send data to the peer
     pub async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
         let key = self.peer().pubkeycomp();
-        let public_key = RSAPublicKey::new(key.n(), key.e())?;
+        let public_key = RSAPublicKey::new(key.n().into(), key.e().into())?;
         self.header.set_len(buffer.len());
         let stream_header = self.header.stream_header();
         let enc_data = aes_encrypt(&public_key, stream_header, &buffer)?;
@@ -136,16 +136,12 @@ impl AsyncHost {
         let port = config.port();
         let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = address.to_socket_addr(port);
+        let socket_addr = SocketAddr::from((address, port));
         let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
+            priv_key_comp.n().into(),
+            priv_key_comp.e().into(),
+            priv_key_comp.d().into(),
+            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
         );
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)
@@ -167,16 +163,12 @@ impl AsyncHost {
         let port = config.port();
         let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = address.to_socket_addr(port);
+        let socket_addr = SocketAddr::from((address, port));
         let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
+            priv_key_comp.n().into(),
+            priv_key_comp.e().into(),
+            priv_key_comp.d().into(),
+            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
         );
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)
@@ -194,7 +186,8 @@ impl AsyncHost {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
         let key = peer.pubkeycomp();
-        let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
+        let public_key =
+            RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
         let enc_data = aes_encrypt(&public_key, stream_header, &data)?;

@@ -105,7 +105,7 @@ use crate::encryption::PubKeyComp;
 use crate::error::NetworkError;
 pub use peers::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
-use std::net::{IpAddr, SocketAddr};
+use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::{
     convert::TryInto,
     net::UdpSocket,
@@ -179,7 +179,7 @@ lazy_static! {
         let peer = ArtificePeer::new(
             global_hash.clone(),
             peer_hash,
-            Layer3SocketAddr::from_layer3_addr(Layer3Addr::V4([127, 0, 0, 1]), 6464),
+            Layer3SocketAddr::from((Layer3Addr::V4([127, 0, 0, 1]), 6464)),
             PubKeyComp::from(&private_key),
         );
         let host_data = ArtificeHostData::new(&private_key, global_hash);
@@ -439,7 +439,10 @@ pub trait ArtificeStream {
     fn socket_addr(&self) -> SocketAddr;
     fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
         let components = self.pubkeycomp();
-        Ok(RSAPublicKey::new(components.n(), components.e())?)
+        Ok(RSAPublicKey::new(
+            components.n().into(),
+            components.e().into(),
+        )?)
     }
     fn pubkeycomp(&self) -> &PubKeyComp {
         self.header().pubkeycomp()
@@ -449,7 +452,7 @@ pub trait ArtificeStream {
 }
 /// used to set discoverability on the local network
 pub trait ArtificeHost {
-    fn begin_broadcast(socket_addr: SocketAddr) -> std::io::Result<Sender<bool>> {
+    fn begin_broadcast<S: ToSocketAddrs>(socket_addr: S) -> std::io::Result<Sender<bool>> {
         let (sender, recv) = channel();
         let socket = UdpSocket::bind(socket_addr)?;
         socket.set_broadcast(true)?;

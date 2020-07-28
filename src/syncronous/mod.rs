@@ -123,7 +123,7 @@ impl SyncStream {
     pub fn send(&mut self, buf: &[u8]) -> std::io::Result<usize> {
         println!("buf: {:?}", buf);
         let key = self.peer().pubkeycomp();
-        let public_key = RSAPublicKey::new(key.n(), key.e()).unwrap();
+        let public_key = RSAPublicKey::new(key.n().into(), key.e().into()).unwrap();
         let mut buffer = Vec::new();
         self.header.set_len(buf.len());
         let bytes = serde_json::to_string(&self.header).unwrap().into_bytes();
@@ -187,18 +187,14 @@ impl SyncHost {
     pub fn from_host_data(config: &ArtificeConfig) -> std::io::Result<Self> {
         let data = config.host_data();
         let port = config.port();
-        let address = config.address();
+        let addr = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = address.to_socket_addr(port);
+        let socket_addr = Layer3SocketAddr::from((addr, port));
         let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
+            priv_key_comp.n().into(),
+            priv_key_comp.e().into(),
+            priv_key_comp.d().into(),
+            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
         );
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)
@@ -216,7 +212,8 @@ impl SyncHost {
         let mut stream = TcpStream::connect(peer.socket_addr())?;
         // encrypt the peer before sending
         let key = peer.pubkeycomp();
-        let public_key = RSAPublicKey::new(key.n(), key.e()).expect("couldn't create key");
+        let public_key =
+            RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let enc_data = rsa_encrypt(&public_key, &data).unwrap();
         stream.write_all(&enc_data)?;
@@ -227,18 +224,14 @@ impl SyncHost {
     pub fn client_only(config: &ArtificeConfig) -> std::io::Result<Self> {
         let data = config.host_data();
         let port = config.port();
-        let address = config.address();
-        let socket_addr = address.to_socket_addr(port);
+        let addr = config.address();
+        let socket_addr = Layer3SocketAddr::from((addr, port));
         let priv_key_comp = data.privkeycomp();
         let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
+            priv_key_comp.n().into(),
+            priv_key_comp.e().into(),
+            priv_key_comp.d().into(),
+            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
         );
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)

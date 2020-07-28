@@ -7,13 +7,14 @@ use crate::asyncronous::encryption::{
 };
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
+use crate::Layer3SocketAddr;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use rsa::{RSAPrivateKey};
+use rsa::RSAPrivateKey;
 use std::collections::HashMap;
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -35,7 +36,11 @@ pub struct StreamRecv<'a> {
 }
 
 impl<'a> StreamRecv<'a> {
-    pub fn new(header: &'a mut Header, priv_key: &'a RSAPrivateKey, receiver: &'a mut Receiver<IncomingMsg>) -> Self {
+    pub fn new(
+        header: &'a mut Header,
+        priv_key: &'a RSAPrivateKey,
+        receiver: &'a mut Receiver<IncomingMsg>,
+    ) -> Self {
         Self {
             header,
             priv_key,
@@ -294,7 +299,7 @@ impl SllpOutgoing {
             outgoing_sender,
         }
     }
-    /// same as SllpSocket, couldn't find an easy way of putting in a trait
+    /// same as SllpSocket, couldn't find an easy way of putting it in a trait
     pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
@@ -328,16 +333,12 @@ impl SllpSocket {
         let port = config.port();
         let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = address.to_socket_addr(port);
+        let socket_addr: SocketAddr = Layer3SocketAddr::from((address, port)).into();
         let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into_inner(),
-            priv_key_comp.e().into_inner(),
-            priv_key_comp.d().into_inner(),
-            priv_key_comp
-                .primes()
-                .into_iter()
-                .map(|v| v.into_inner())
-                .collect(),
+            priv_key_comp.n().into(),
+            priv_key_comp.e().into(),
+            priv_key_comp.d().into(),
+            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
         );
         let socket = UdpSocket::bind(socket_addr).await?;
         let (mut request_sender, request_receiver): (

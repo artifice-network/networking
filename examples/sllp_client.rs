@@ -6,8 +6,6 @@ use std::error::Error;
 async fn main() -> Result<(), Box<dyn Error>> {
     let (peer, config) = test_config();
     let mut socket = SllpSocket::from_host_data(&config).await?;
-    while let Some(strm) = socket.incoming().await {
-        let mut stream = strm?.verify(&peer)?;
-    }
+    let mut stream = socket.connect(&peer).await;
     Ok(())
 }

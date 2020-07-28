@@ -1,42 +1,149 @@
 use crate::encryption::PubKeyComp;
 use crate::{error::NetworkError, random_string};
 use rsa::RSAPublicKey;
+use std::fmt;
+use std::net::ToSocketAddrs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+/// a serde serializable representation of std::net::SocketAddr
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Layer3SocketAddr {
     addr: Layer3Addr,
     port: u16,
 }
-/// includes port information and is used to bind to an address
 impl Layer3SocketAddr {
-    pub fn from_layer3_addr(addr: Layer3Addr, port: u16) -> Self {
-        Self { addr, port }
+    pub fn ip(&self) -> Layer3Addr {
+        self.addr
     }
-    pub fn as_socket_addr(&self) -> SocketAddr {
-        SocketAddr::new(self.addr.as_ipaddr(), self.port)
-    }
-    pub fn as_ipaddr(&self) -> IpAddr {
-        self.addr.as_ipaddr()
+    pub fn port(&self) -> u16 {
+        self.port
     }
 }
-
+impl fmt::Display for Layer3SocketAddr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}:{}", self.addr, self.port)
+    }
+}
+impl PartialEq<SocketAddr> for Layer3SocketAddr {
+    fn eq(&self, other: &SocketAddr) -> bool {
+        other.ip() == self.addr && other.port() == self.port
+    }
+}
+impl PartialEq<Layer3SocketAddr> for SocketAddr {
+    fn eq(&self, other: &Layer3SocketAddr) -> bool {
+        self.ip() == other.ip() && self.port() == other.port()
+    }
+}
+impl From<(Layer3Addr, u16)> for Layer3SocketAddr {
+    fn from((addr, port): (Layer3Addr, u16)) -> Self {
+        Self { addr, port }
+    }
+}
+/// this module is only supported on std, not tokio becuase it seems whoever implemented the
+/// tokio::net::ToSocketAddrs, was stingy, and made the trait a wrapper around a private trait
+/// a future implementation might use a std network stream, to construct the tokio equvilent
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
+pub struct Layer3SocketIter {
+    value: Vec<Layer3SocketAddr>,
+}
+impl Layer3SocketIter {
+    pub fn new() -> Self {
+        Self { value: Vec::new() }
+    }
+    pub fn with_capacity(cap: usize) -> Self {
+        Self {
+            value: Vec::with_capacity(cap),
+        }
+    }
+    pub fn into_inner(self) -> Vec<Layer3SocketAddr> {
+        self.value
+    }
+}
+impl Default for Layer3SocketIter {
+    fn default() -> Self {
+        Self { value: Vec::new() }
+    }
+}
+impl From<Layer3SocketAddr> for Layer3SocketIter {
+    fn from(addr: Layer3SocketAddr) -> Self {
+        let mut value = Vec::new();
+        value.push(addr);
+        Self { value }
+    }
+}
+impl From<&Layer3SocketAddr> for Layer3SocketIter {
+    fn from(addr: &Layer3SocketAddr) -> Self {
+        Layer3SocketIter::from(*addr)
+    }
+}
+impl Iterator for Layer3SocketIter {
+    type Item = SocketAddr;
+    fn next(&mut self) -> Option<Self::Item> {
+        match self.value.pop() {
+            Some(addr) => Some(SocketAddr::from(addr)),
+            None => None,
+        }
+    }
+}
+impl ToSocketAddrs for Layer3SocketAddr {
+    type Iter = Layer3SocketIter;
+    fn to_socket_addrs(&self) -> Result<Self::Iter, std::io::Error> {
+        Ok(Layer3SocketIter::from(self))
+    }
+}
+impl From<SocketAddr> for Layer3SocketAddr {
+    fn from(addr: SocketAddr) -> Self {
+        Self {
+            addr: addr.ip().into(),
+            port: addr.port(),
+        }
+    }
+}
+impl From<Layer3SocketAddr> for SocketAddr {
+    fn from(addr: Layer3SocketAddr) -> Self {
+        SocketAddr::new(addr.addr.into(), addr.port)
+    }
+}
+impl From<Layer3SocketAddr> for (Layer3Addr, u16) {
+    fn from(addr: Layer3SocketAddr) -> (Layer3Addr, u16) {
+        (addr.addr, addr.port)
+    }
+}
 /// representation of an IpAddr that can be saved to a file, the purpose of this being the ability to connect to stable global peers even after the cnnection has been closed for a time
-#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord)]
+#[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub enum Layer3Addr {
     V4([u8; 4]),
     V6([u16; 8]),
 }
-impl Layer3Addr {
-    pub fn as_ipaddr(&self) -> IpAddr {
-        match self {
-            Self::V4(addr) => IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
-            Self::V6(addr) => IpAddr::V6(Ipv6Addr::new(
-                addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
-            )),
-        }
+impl fmt::Display for Layer3Addr {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        let msg = match self {
+            Self::V4([v1, v2, v3, v4]) => format!("{}.{}.{}.{}", v1, v2, v3, v4),
+            Self::V6([v1, v2, v3, v4, v5, v6, v7, v8]) => format!(
+                "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
+                v1, v2, v3, v4, v5, v6, v7, v8
+            ),
+        };
+        write!(f, "{}", msg)
     }
-    pub fn from_ipaddr(ipaddr: &IpAddr) -> Self {
+}
+impl PartialEq<IpAddr> for Layer3Addr {
+    fn eq(&self, other: &IpAddr) -> bool {
+        IpAddr::from(*self) == *other
+    }
+}
+impl PartialEq<Layer3Addr> for IpAddr {
+    fn eq(&self, other: &Layer3Addr) -> bool {
+        Layer3Addr::from(*self) == *other
+    }
+}
+impl From<&Layer3Addr> for IpAddr {
+    fn from(addr: &Layer3Addr) -> Self {
+        IpAddr::from(*addr)
+    }
+}
+impl From<IpAddr> for Layer3Addr {
+    fn from(ipaddr: IpAddr) -> Self {
         match ipaddr {
             IpAddr::V4(addr) => Self::V4(addr.octets()),
             IpAddr::V6(addr) => {
@@ -51,8 +158,20 @@ impl Layer3Addr {
             }
         }
     }
-    pub fn to_socket_addr(&self, port: u16) -> SocketAddr {
-        SocketAddr::new(self.as_ipaddr(), port)
+}
+impl From<Layer3SocketAddr> for IpAddr {
+    fn from(addr: Layer3SocketAddr) -> IpAddr {
+        addr.into()
+    }
+}
+impl From<Layer3Addr> for IpAddr {
+    fn from(addr: Layer3Addr) -> Self {
+        match addr {
+            Layer3Addr::V4(addr) => IpAddr::V4(Ipv4Addr::new(addr[0], addr[1], addr[2], addr[3])),
+            Layer3Addr::V6(addr) => IpAddr::V6(Ipv6Addr::new(
+                addr[0], addr[1], addr[2], addr[3], addr[4], addr[5], addr[6], addr[7],
+            )),
+        }
     }
 }
 /// make sure that bit shifting/as works as expected
@@ -139,7 +258,7 @@ impl ArtificePeer {
         addr: Layer3SocketAddr,
         pubkey: PubKeyComp,
     ) -> Self {
-        let routable = addr.as_ipaddr().is_global();
+        let routable = IpAddr::from(addr).is_global();
         Self {
             global_peer_hash,
             addr,
@@ -153,14 +272,17 @@ impl ArtificePeer {
     }
     // get ipaddr associated with this peer
     pub fn addr(&self) -> IpAddr {
-        self.addr.as_ipaddr()
+        self.addr.into()
     }
     /// makes public key pair available to the client program, for encryption purposes
     pub fn pubkeycomp(&self) -> &PubKeyComp {
         &self.pubkey
     }
     pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        Ok(RSAPublicKey::new(self.pubkey.n(), self.pubkey.e())?)
+        Ok(RSAPublicKey::new(
+            self.pubkey.n().into(),
+            self.pubkey.e().into(),
+        )?)
     }
     /// makes key pair hash available to the client program to verify the remote peer
     pub fn peer_hash(&self) -> &str {
@@ -168,16 +290,26 @@ impl ArtificePeer {
     }
     // includes port
     pub fn socket_addr(&self) -> std::net::SocketAddr {
-        self.addr.as_socket_addr()
+        self.addr.into()
+    }
+    pub fn set_socket_addr(&mut self, sock_addr: SocketAddr) {
+        self.addr = sock_addr.into();
     }
 }
 impl PeerList for ArtificePeer {
     fn verify_peer(&self, peer: &ArtificePeer) -> bool {
         *self == *peer
     }
+    fn get_peer(&self, key: &str) -> Option<ArtificePeer> {
+        if self.global_peer_hash == key {
+            return Some(self.clone());
+        }
+        None
+    }
 }
 /// used in ConnectionRequests verify method, anything that implements this trait
 /// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
     fn verify_peer(&self, peer: &ArtificePeer) -> bool;
+    fn get_peer(&self, key: &str) -> Option<ArtificePeer>;
 }
