@@ -1,7 +1,7 @@
+use networking::asyncronous::{AsyncNetworkHost, AsyncRecv};
 use networking::sllp::SllpSocket;
 use networking::test_config;
 use std::error::Error;
-use networking::asyncronous::{AsyncRecv, AsyncNetworkHost};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {

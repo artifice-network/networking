@@ -12,6 +12,9 @@ pub struct Layer3SocketAddr {
     port: u16,
 }
 impl Layer3SocketAddr {
+    pub fn new(addr: Layer3Addr, port: u16) -> Self{
+        Self {addr, port}
+    }
     pub fn ip(&self) -> Layer3Addr {
         self.addr
     }

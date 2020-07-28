@@ -154,10 +154,8 @@ impl AsyncNetworkHost for AsyncHost {
     type Error = NetworkError;
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
-        let port = config.port();
-        let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = SocketAddr::from((address, port));
+        let socket_addr: SocketAddr = config.socket_addr().into();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),
             priv_key_comp.e().into(),
@@ -180,13 +178,11 @@ impl AsyncNetworkHost for AsyncHost {
         })
     }
 }
-impl AsyncHost{
+impl AsyncHost {
     pub async fn client_only(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
-        let port = config.port();
-        let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = SocketAddr::from((address, port));
+        let socket_addr: SocketAddr = config.socket_addr().into();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),
             priv_key_comp.e().into(),
@@ -235,11 +231,14 @@ impl AsyncHost{
 }
 impl Stream for AsyncHost {
     type Item = Result<ConnectionRequest<AsyncStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
-        Incoming::poll_next(Pin::new(&mut match self.incoming() {
-            Ok(incoming) => incoming,
-            Err(e) => return Poll::Ready(Some(Err(e))),
-        }),ctx)
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        Incoming::poll_next(
+            Pin::new(&mut match self.incoming() {
+                Ok(incoming) => incoming,
+                Err(e) => return Poll::Ready(Some(Err(e))),
+            }),
+            ctx,
+        )
     }
 }
 // ======================================================================================
@@ -327,5 +326,6 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
 pub trait AsyncNetworkHost: Stream {
     type Error: Error;
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, Self::Error>
-    where Self: std::marker::Sized;
+    where
+        Self: std::marker::Sized;
 }

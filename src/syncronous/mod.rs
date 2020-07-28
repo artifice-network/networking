@@ -10,7 +10,7 @@ use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
-    sync::{mpsc::Sender},
+    sync::mpsc::Sender,
 };
 /// the TcpStream version of the artifice network, implements encryption automatically in its implementation of std::io::Write, and std::io::Read
 #[derive(Debug)]
@@ -125,8 +125,9 @@ impl std::iter::Iterator for SyncHost {
                         while data_len == 0 {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
-                        let (dec_data, _header) = asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])
-                            .expect("decryption failed");
+                        let (dec_data, _header) =
+                            asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])
+                                .expect("decryption failed");
                         let addr = match stream.peer_addr() {
                             Ok(addr) => addr,
                             Err(e) => return Some(Err(e.into())),
@@ -153,10 +154,8 @@ impl std::iter::Iterator for SyncHost {
 impl SyncHost {
     pub fn from_host_data(config: &ArtificeConfig) -> std::io::Result<Self> {
         let data = config.host_data();
-        let port = config.port();
-        let addr = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr = Layer3SocketAddr::from((addr, port));
+        let socket_addr: SocketAddr = config.socket_addr().into();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),
             priv_key_comp.e().into(),
@@ -193,9 +192,7 @@ impl SyncHost {
     /// designed only for testing but may be used for non global peers
     pub fn client_only(config: &ArtificeConfig) -> std::io::Result<Self> {
         let data = config.host_data();
-        let port = config.port();
-        let addr = config.address();
-        let socket_addr = Layer3SocketAddr::from((addr, port));
+        let socket_addr: SocketAddr = config.socket_addr().into();
         let priv_key_comp = data.privkeycomp();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),

@@ -1,31 +1,7 @@
-use crypto::digest::Digest;
-use crypto::sha3::Sha3;
 use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
-
-use rand::distributions::Alphanumeric;
-use rand::{thread_rng, Rng};
-use std::iter;
-
-/// used to generate things such as pair keys, and global peer hash, see ArtificePeer
-pub fn random_string(len: usize) -> String {
-    let mut rng = thread_rng();
-    iter::repeat(())
-        .map(|()| rng.sample(Alphanumeric))
-        .take(len)
-        .collect()
-}
-
-/// used to encrypt password and generate a key that can be used to encrypt, and decrypt data
-pub fn generate_key(password: &[u8]) -> Vec<u8> {
-    let mut hasher = Sha3::sha3_256();
-    hasher.input(password);
-    let mut retvec = Vec::new();
-    hasher.result(&mut retvec);
-    retvec
-}
 
 /*pub async fn async_rsa_encrypt(public_key: RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error>{
 

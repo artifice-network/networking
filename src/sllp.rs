@@ -5,10 +5,9 @@ use crate::async_query::AsyncQuery;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
-use crate::asyncronous::{AsyncRecv, AsyncSend, AsyncNetworkHost};
+use crate::asyncronous::{AsyncNetworkHost, AsyncRecv, AsyncSend};
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
-use crate::Layer3SocketAddr;
 use crate::PubKeyComp;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
@@ -356,10 +355,8 @@ impl AsyncNetworkHost for SllpSocket {
     type Error = NetworkError;
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
-        let port = config.port();
-        let address = config.address();
         let priv_key_comp = data.privkeycomp();
-        let socket_addr: SocketAddr = Layer3SocketAddr::from((address, port)).into();
+        let socket_addr: SocketAddr = config.socket_addr().into();
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),
             priv_key_comp.e().into(),

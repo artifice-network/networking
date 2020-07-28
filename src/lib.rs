@@ -43,7 +43,6 @@ extern crate serde_derive;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
 /// generates random strings of given length
-pub use encryption::random_string;
 pub mod error;
 use encryption::*;
 /// asyncronous implementation of the tcp networking provided in this crate
@@ -97,14 +96,14 @@ pub use query::Query;
 /// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
 /// note that this module has no syncronous implementation
 /// # Client Example
-/// 
+///
 /// ```ignore
 /// use networking::sllp::SllpSocket;
 /// use networking::test_config;
 /// use networking::Layer3Addr;
 /// use std::error::Error;
 /// use networking::asyncronous::{AsyncSend, AsyncNetworkHost};
-/// 
+///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn Error>> {
 ///     let (mut peer, config) = test_config();
@@ -117,13 +116,13 @@ pub use query::Query;
 /// }
 /// ```  
 /// # Server Example
-/// 
+///
 /// ```ignore
 /// use networking::sllp::SllpSocket;
 /// use networking::test_config;
 /// use std::error::Error;
 /// use networking::asyncronous::{AsyncRecv, AsyncNetworkHost};
-/// 
+///
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn Error>> {
 ///     let (peer, config) = test_config();
@@ -150,7 +149,10 @@ pub mod sllp;
 pub mod syncronous;
 use crate::encryption::PubKeyComp;
 use crate::error::NetworkError;
+
 pub use peers::*;
+pub mod utils;
+pub use utils::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
 use std::{
@@ -160,62 +162,45 @@ use std::{
     thread,
     time::Duration,
 };
-/// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
-/// this method generates static data, so it should never be used in production environments
-pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
-    use std::fs::File;
-    use std::io::Read;
-    let mut peer_string = String::new();
-    let mut file = File::open("peer.json").unwrap();
-    file.read_to_string(&mut peer_string).unwrap();
-    let peer = serde_json::from_str(&peer_string).unwrap();
-    let mut config_string = String::new();
-    let mut config_file = File::open("host.json").unwrap();
-    config_file.read_to_string(&mut config_string).unwrap();
-    let config = serde_json::from_str(&config_string).unwrap();
-
-    (peer, config)
-}
 /// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
     broadcast: bool,
-    address: Layer3Addr,
-    port: u16,
+    addr: Layer3SocketAddr,
     host: ArtificeHostData,
 }
 impl ArtificeConfig {
-    pub fn new(address: Layer3Addr, port: u16, host: ArtificeHostData, broadcast: bool) -> Self {
+    pub fn new(addr: Layer3SocketAddr, host: ArtificeHostData, broadcast: bool) -> Self {
         Self {
             broadcast,
-            address,
-            port,
+            addr,
             host,
         }
     }
     /// used to create new host, primarily designed for use by the installer crate
-    pub fn generate(address: Layer3Addr) -> Self {
+    pub fn generate(addr: Layer3SocketAddr) -> Self {
         let broadcast = false;
-        let port = 6464;
         let host = ArtificeHostData::default();
         Self {
             broadcast,
-            address,
-            port,
+            addr,
             host,
         }
     }
-    pub fn host_data(&self) -> ArtificeHostData {
-        self.host.clone()
+    pub fn host_data(&self) -> &ArtificeHostData {
+        &self.host
     }
     pub fn broadcast(&self) -> bool {
         self.broadcast
     }
     pub fn port(&self) -> u16 {
-        self.port
+        self.addr.port()
     }
-    pub fn address(&self) -> Layer3Addr {
-        self.address
+    pub fn addr(&self) -> Layer3Addr {
+        self.addr.ip()
+    }
+    pub fn socket_addr(&self) -> Layer3SocketAddr {
+        self.addr
     }
 }
 
@@ -236,11 +221,11 @@ impl Default for ArtificeHostData {
     }
 }
 impl ArtificeHostData {
-    pub fn new(private_key: &RSAPrivateKey, global_peer_hash: String) -> Self {
+    pub fn new(private_key: &RSAPrivateKey, global_peer_hash: &str) -> Self {
         let priv_key = PrivKeyComp::from(private_key);
         Self {
             priv_key,
-            global_peer_hash,
+            global_peer_hash: global_peer_hash.to_string(),
         }
     }
     /// returns the n, e, d, and primes of an RSA key
@@ -396,7 +381,7 @@ impl From<&Header> for StreamHeader {
     }
 }
 impl From<Header> for StreamHeader {
-    fn from(header: Header) -> Self{
+    fn from(header: Header) -> Self {
         StreamHeader::from(&header)
     }
 }
