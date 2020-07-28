@@ -114,7 +114,16 @@ use std::{
 /// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
 /// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
-    
+    use std::fs::File;
+    use std::io::{Read};
+    let mut peer_string = String::new();
+    let mut file = File::open("peer.json").unwrap();
+    file.read_to_string(&mut peer_string).unwrap();
+    let peer = serde_json::from_str(&peer_string).unwrap();
+    let mut config_string = String::new();
+    let mut config_file = File::open("host.json").unwrap();
+    config_file.read_to_string(&mut config_string).unwrap();
+    let config = serde_json::from_str(&config_string).unwrap();
     
     (peer, config)
 }
