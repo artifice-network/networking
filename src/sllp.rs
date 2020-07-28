@@ -5,7 +5,7 @@ use crate::async_query::AsyncQuery;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
-use crate::asyncronous::{AsyncRecv, AsyncSend};
+use crate::asyncronous::{AsyncRecv, AsyncSend, AsyncNetworkHost};
 use crate::ArtificeConfig;
 use crate::ConnectionRequest;
 use crate::Layer3SocketAddr;
@@ -351,9 +351,10 @@ pub struct SllpSocket {
     streams: Streams,
     outgoing_sender: Sender<OutgoingMsg>,
 }
-
-impl SllpSocket {
-    pub async fn from_host_data(config: &ArtificeConfig) -> Result<Self, NetworkError> {
+#[async_trait]
+impl AsyncNetworkHost for SllpSocket {
+    type Error = NetworkError;
+    async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
         let port = config.port();
         let address = config.address();
@@ -430,6 +431,8 @@ impl SllpSocket {
             outgoing_sender: out_sender,
         })
     }
+}
+impl SllpSocket {
     pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);

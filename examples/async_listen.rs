@@ -1,4 +1,4 @@
-use networking::{asyncronous::AsyncHost, test_config};
+use networking::{asyncronous::{AsyncHost, AsyncSend, AsyncNetworkHost}, test_config};
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let (peer, config) = test_config();

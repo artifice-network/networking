@@ -228,9 +228,18 @@ impl AsyncHost{
     }
     pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
         match &mut self.listener {
-            Some(listener) => Ok(Incoming::new(listener, self.priv_key.clone())),
+            Some(listener) => Ok(Incoming::new(listener, &self.priv_key)),
             None => Err(NetworkError::UnSet("client only".to_string())),
         }
+    }
+}
+impl Stream for AsyncHost {
+    type Item = Result<ConnectionRequest<AsyncStream>, NetworkError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>>{
+        Incoming::poll_next(Pin::new(&mut match self.incoming() {
+            Ok(incoming) => incoming,
+            Err(e) => return Poll::Ready(Some(Err(e))),
+        }),ctx)
     }
 }
 // ======================================================================================
@@ -238,10 +247,10 @@ impl AsyncHost{
 // ======================================================================================
 pub struct Incoming<'a> {
     listener: &'a mut TcpListener,
-    priv_key: RSAPrivateKey,
+    priv_key: &'a RSAPrivateKey,
 }
 impl<'a> Incoming<'a> {
-    pub fn new(listener: &'a mut TcpListener, priv_key: RSAPrivateKey) -> Incoming<'_> {
+    pub fn new(listener: &'a mut TcpListener, priv_key: &'a RSAPrivateKey) -> Incoming<'a> {
         Self { listener, priv_key }
     }
 }
@@ -315,7 +324,7 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
 }
 /// shared behavior between SllpSocket, and AsyncHost
 #[async_trait]
-pub trait AsyncNetworkHost {
+pub trait AsyncNetworkHost: Stream {
     type Error: Error;
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, Self::Error>
     where Self: std::marker::Sized;

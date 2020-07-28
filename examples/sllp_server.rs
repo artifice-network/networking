@@ -1,12 +1,12 @@
 use networking::sllp::SllpSocket;
 use networking::test_config;
 use std::error::Error;
-use networking::asyncronous::AsyncRecv;
+use networking::asyncronous::{AsyncRecv, AsyncNetworkHost};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let (peer, config) = test_config();
-    let mut socket = SllpSocket::from_host_data(&config).await?;
+    let mut socket = SllpSocket::from_host_config(&config).await?;
     while let Some(strm) = socket.incoming().await {
         let mut stream = strm?.verify(&peer)?;
         tokio::spawn(async move {
