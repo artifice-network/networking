@@ -301,7 +301,7 @@ impl SllpOutgoing {
     }
     /// same as SllpSocket, couldn't find an easy way of putting it in a trait
     pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
-        let (incoming_sender, incoming_receiver) = channel(65535);
+        let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
         self.streams
@@ -344,11 +344,11 @@ impl SllpSocket {
         let (mut request_sender, request_receiver): (
             Sender<NewConnection>,
             Receiver<NewConnection>,
-        ) = channel(65535);
+        ) = channel(200);
         let (outgoing_sender, mut outgoing_receiver): (
             Sender<OutgoingMsg>,
             Receiver<(Vec<u8>, SocketAddr)>,
-        ) = channel(65535);
+        ) = channel(200);
         let senders: Streams = Streams::default();
         let (mut recv_half, mut send_half) = socket.split();
         // spawn incoming
@@ -372,7 +372,7 @@ impl SllpSocket {
                                 let (incoming_sender, incoming_receiver): (
                                     Sender<IncomingMsg>,
                                     Receiver<(Vec<u8>, usize)>,
-                                ) = channel(65535);
+                                ) = channel(1);
                                 // moved into the stream and pocesses a reciever to get incoming data, and a sender = outgoing_sender
                                 // to send to the sending thread
                                 let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
@@ -406,7 +406,7 @@ impl SllpSocket {
         })
     }
     pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
-        let (incoming_sender, incoming_receiver) = channel(65535);
+        let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
         self.streams
