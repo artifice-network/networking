@@ -96,6 +96,55 @@ pub use query::Query;
 
 /// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
 /// note that this module has no syncronous implementation
+/// # Client Example
+/// 
+/// ```ignore
+/// use networking::sllp::SllpSocket;
+/// use networking::test_config;
+/// use networking::Layer3Addr;
+/// use std::error::Error;
+/// use networking::asyncronous::AsyncSend;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn Error>> {
+///     let (mut peer, config) = test_config();
+///     let socket = SllpSocket::from_host_data(&config).await?;
+///     // this needs to be updated to remote peer, because two devices cannot bind to the smae address
+///     peer.set_socket_addr((Layer3Addr::newv4(127, 0, 0, 1), 6464).into());
+///     let mut stream = socket.connect(&peer).await;
+///     loop { stream.send(b"hello world").await.unwrap(); }
+///     Ok(())
+/// }
+/// ```  
+/// # Server Example
+/// 
+/// ```ignore
+/// use networking::sllp::SllpSocket;
+/// use networking::test_config;
+/// use std::error::Error;
+/// use networking::asyncronous::AsyncRecv;
+/// 
+/// #[tokio::main]
+/// async fn main() -> Result<(), Box<dyn Error>> {
+///     let (peer, config) = test_config();
+///     let mut socket = SllpSocket::from_host_data(&config).await?;
+///     while let Some(strm) = socket.incoming().await {
+///         let mut stream = strm?.verify(&peer)?;
+///         tokio::spawn(async move {
+///             println!("new connection");
+///             loop {
+///                 let mut invec = Vec::new();
+///                 stream.recv(&mut invec).await.unwrap();
+///                 println!(
+///                     "got message {}, from server",
+///                     String::from_utf8(invec).unwrap()
+///                 );
+///             }
+///         });
+///     }
+///     Ok(())
+/// }
+/// ```
 pub mod sllp;
 
 pub mod syncronous;
