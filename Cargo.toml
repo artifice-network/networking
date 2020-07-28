@@ -5,7 +5,7 @@ authors = ["julian lazaras <lazaras@pdx.edu>"]
 edition = "2018"
 license = "MIT"
 readme = "README.md"
-keywords = ["artifice", "rsa", "encryption", "aes", "p2p", "peer-to-peer", "SLLP"]
+keywords = ["rsa", "encryption", "aes", "p2p", "SLLP"]
 repository = "https://github.com/artifice-network/networking"
 
 description = "secure RSA + AES network implementations in a peer to peer enabled manner"
