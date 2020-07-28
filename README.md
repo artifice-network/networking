@@ -8,23 +8,25 @@ this crate aims to prevent man in the middle attacks by encrypting pre-shared ke
 ## Version details
 
 this version comes with an SLLP (Secure Low Latency Protocol) implementation. this protocol created for the purpose of this project
-is a semi-connection enabled protocol based on udp. as a protocol it matains a connection for all intents and pruposes
-in the same manner as the tcp implementation of this project, however for the sake of efficiency, data ordering, as well as packet loss may occure.
+is a semi-connection enabled protocol based on udp.
 
 ## implementation of SLLP
 
-the SLLP implementation in this project, ensures a connection that is private between two peers, by authenticating 
-encrypted pre-shared keys, and as a safety measure moniters packet frequency on a given pair of peers to prevent a memory leak, or connection hang. this implementation is provided by an async await interrupt based system that wakes a thread every minute to check that each pair is active
+the SLLP implementation in this project, ensures a psudo connection that is private between two peers, by authenticating 
+encrypted pre-shared keys.
 
 ## future implementations
-
-Syncronous version asymetric AES encryption, data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535
-
+<ul>
+<li>proper SLLp error handiling to notifiy a stream when connection has been terminated. </li>
+<li>data order tracking, for SLLP</li>
+<li>in place encrpytion and decryption for increased efficiency.</li>
+<li>data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535 for Tcp implementations.</li>
+</ul>
 ## Example usage
 
 a management crate, or database would be a better means of supplying peers to this network, each host having a databse containg a list of their paired peers.
 ## SLLP
-### Client Example
+### SLLP Client
  
 ```rust
 use networking::sllp::SllpSocket;
@@ -44,7 +46,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     Ok(())
 }
 ```  
-### Server Example
+### SLLP Server
 
 ```rust
 use networking::sllp::SllpSocket;
@@ -118,3 +120,4 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ## Sync
 
 for sync examples see <a href="https://docs.rs/networking/0.1.5/networking">docs</a>
+the camera example is to show a practical application, and test the network by supplying high load

@@ -149,8 +149,10 @@ impl ArtificeHost for AsyncHost {
         }
     }
 }
-impl AsyncHost {
-    pub async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
+#[async_trait]
+impl AsyncNetworkHost for AsyncHost {
+    type Error = NetworkError;
+    async fn from_host_config(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
         let port = config.port();
         let address = config.address();
@@ -177,6 +179,8 @@ impl AsyncHost {
             listener,
         })
     }
+}
+impl AsyncHost{
     pub async fn client_only(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
         let port = config.port();
@@ -304,9 +308,15 @@ pub trait AsyncRecv {
     type Error: Error;
     async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<usize, Self::Error>;
 }
+/// currently only used as a marker, will implement more functionality in the future
 #[async_trait]
 pub trait AsyncDataStream: AsyncSend + AsyncRecv {
     type Error: Error;
 }
+/// shared behavior between SllpSocket, and AsyncHost
 #[async_trait]
-pub trait AsyncNetworkHost {}
+pub trait AsyncNetworkHost {
+    type Error: Error;
+    async fn from_host_config(config: &ArtificeConfig) -> Result<Self, Self::Error>
+    where Self: std::marker::Sized;
+}
