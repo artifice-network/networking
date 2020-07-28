@@ -4,6 +4,7 @@
 use crate::ArtificeConfig;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
+use crate::PubKeyComp;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -62,6 +63,10 @@ impl ArtificeStream for AsyncStream {
     fn header(&self) -> &Header {
         &self.header
     }
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+        self.header.set_pubkey(pubkey);
+        self
+    }
 }
 // ====================================== ====================================================
 //                                    Impl Async Stream
@@ -104,7 +109,10 @@ impl AsyncStream {
     }
     /// send data to the peer
     pub async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let key = self.peer().pubkeycomp();
+        let key = match self.peer().pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         let public_key = RSAPublicKey::new(key.n().into(), key.e().into())?;
         self.header.set_len(buffer.len());
         let stream_header = self.header.stream_header();
@@ -185,7 +193,10 @@ impl AsyncHost {
     pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
-        let key = peer.pubkeycomp();
+        let key = match peer.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         let public_key =
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();

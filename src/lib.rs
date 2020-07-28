@@ -242,11 +242,7 @@ impl Header {
         }
     }
     pub fn stream_header(&self) -> StreamHeader {
-        StreamHeader::new(
-            self.peer.global_peer_hash(),
-            self.peer.peer_hash(),
-            self.packet_len,
-        )
+        StreamHeader::from(self)
     }
     pub fn peer(&self) -> &ArtificePeer {
         &self.peer
@@ -254,7 +250,7 @@ impl Header {
     pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
         self.peer.pubkey()
     }
-    pub fn pubkeycomp(&self) -> &PubKeyComp {
+    pub fn pubkeycomp(&self) -> &Option<PubKeyComp> {
         self.peer.pubkeycomp()
     }
     pub fn packet_len(&self) -> usize {
@@ -262,6 +258,9 @@ impl Header {
     }
     pub fn set_len(&mut self, len: usize) {
         self.packet_len = len;
+    }
+    pub fn set_pubkey(&mut self, pubkey: PubKeyComp){
+        self.peer.set_pubkey(pubkey);
     }
 }
 /// used to ensure man in the middle attack doesn't occure, but used in place of the Header struct
@@ -284,6 +283,12 @@ impl StreamHeader {
             packet_len,
             remander: 0,
         }
+    }
+    pub fn global_peer_hash(&self) -> &str{
+        &self.global_hash
+    }
+    pub fn peer_hash(&self) -> &str{
+        &self.peer_hash
     }
     pub fn key(&self) -> &[u8] {
         &self.aes_key
@@ -332,6 +337,15 @@ impl StreamHeader {
         })
     }
 }
+impl From<&Header> for StreamHeader {
+    fn from(header: &Header) -> Self{
+        StreamHeader::new(
+            header.peer().global_peer_hash(),
+            header.peer().peer_hash(),
+            header.packet_len(),
+        )
+    }
+}
 #[test]
 fn header_to_raw_from_raw() {
     let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
@@ -373,17 +387,21 @@ pub trait ArtificeStream {
     }
     fn socket_addr(&self) -> SocketAddr;
     fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        let components = self.pubkeycomp();
+        let components = match self.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         Ok(RSAPublicKey::new(
             components.n().into(),
             components.e().into(),
         )?)
     }
-    fn pubkeycomp(&self) -> &PubKeyComp {
+    fn pubkeycomp(&self) -> &Option<PubKeyComp> {
         self.header().pubkeycomp()
     }
     fn peer(&self) -> &ArtificePeer;
     fn header(&self) -> &Header;
+    fn set_pubkey(self, pubkey: PubKeyComp) -> Self;
 }
 /// used to set discoverability on the local network
 pub trait ArtificeHost {
@@ -414,8 +432,8 @@ impl<T: ArtificeStream> ConnectionRequest<T> {
     }
     /// used to ensure only known peers are allow to connect
     pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError> {
-        if list.verify_peer(&self.stream.peer()) {
-            Ok(self.stream)
+        if let Some(key) = list.verify_peer(&self.stream.peer()) {
+            Ok(self.stream.set_pubkey(key))
         } else {
             Err(NetworkError::ConnectionDenied(
                 "verification of peer failed".to_string(),

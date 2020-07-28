@@ -248,7 +248,7 @@ pub struct ArtificePeer {
     global_peer_hash: String,
     addr: Layer3SocketAddr,
     routable: bool,
-    pubkey: PubKeyComp,
+    pubkey: Option<PubKeyComp>,
     /// this is only for the pair between this server and that peer
     peer_hash: String,
 }
@@ -266,18 +266,18 @@ impl ArtificePeer {
     /// (used to prevent the danger of pubkey theft as each pairkey only exists between one particular peer and another)
     /// remote user provides further verification of identity, and is used in junction with peer verification to control access rights
     pub fn new(
-        global_peer_hash: String,
-        peer_hash: String,
+        global_peer_hash: &str,
+        peer_hash: &str,
         addr: Layer3SocketAddr,
-        pubkey: PubKeyComp,
+        pubkey: Option<PubKeyComp>,
     ) -> Self {
         let routable = IpAddr::from(addr).is_global();
         Self {
-            global_peer_hash,
+            global_peer_hash: global_peer_hash.to_string(),
             addr,
             routable,
             pubkey,
-            peer_hash,
+            peer_hash: peer_hash.to_string(),
         }
     }
     pub fn global_peer_hash(&self) -> &str {
@@ -288,13 +288,17 @@ impl ArtificePeer {
         self.addr.into()
     }
     /// makes public key pair available to the client program, for encryption purposes
-    pub fn pubkeycomp(&self) -> &PubKeyComp {
+    pub fn pubkeycomp(&self) -> &Option<PubKeyComp> {
         &self.pubkey
     }
     pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
+        let pubkey = match &self.pubkey {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         Ok(RSAPublicKey::new(
-            self.pubkey.n().into(),
-            self.pubkey.e().into(),
+            pubkey.n().into(),
+            pubkey.e().into(),
         )?)
     }
     /// makes key pair hash available to the client program to verify the remote peer
@@ -308,10 +312,17 @@ impl ArtificePeer {
     pub fn set_socket_addr(&mut self, sock_addr: SocketAddr) {
         self.addr = sock_addr.into();
     }
+    pub fn set_pubkey(&mut self, pubkey: PubKeyComp) {
+        self.pubkey = Some(pubkey);
+    } 
 }
 impl PeerList for ArtificePeer {
-    fn verify_peer(&self, peer: &ArtificePeer) -> bool {
-        *self == *peer
+    fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp> {
+        if *self == *peer {
+            peer.pubkeycomp().to_owned()
+        }else{
+            None
+        }
     }
     fn get_peer(&self, key: &str) -> Option<ArtificePeer> {
         if self.global_peer_hash == key {
@@ -323,6 +334,6 @@ impl PeerList for ArtificePeer {
 /// used in ConnectionRequests verify method, anything that implements this trait
 /// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
-    fn verify_peer(&self, peer: &ArtificePeer) -> bool;
+    fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp>;
     fn get_peer(&self, key: &str) -> Option<ArtificePeer>;
 }

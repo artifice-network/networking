@@ -10,7 +10,10 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("no problem yet");
     while let Some(strm) = socket.incoming().await {
         let mut stream = strm?.verify(&peer)?;
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        println!("new connection received");
+        let mut invec = Vec::new();
+        stream.recv(&mut invec);
+        println!("got message {}, from server", String::from_utf8(invec).unwrap());
     }
     Ok(())
 }

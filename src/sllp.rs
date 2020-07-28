@@ -10,6 +10,7 @@ use crate::ConnectionRequest;
 use crate::Layer3SocketAddr;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
+use crate::PubKeyComp;
 use futures::{
     future::Future,
     task::{Context, Poll},
@@ -188,6 +189,10 @@ impl ArtificeStream for SllpStream {
     fn header(&self) -> &Header {
         &self.header
     }
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+        self.header.set_pubkey(pubkey);
+        self
+    }
 }
 // ===================================================================================
 //                             Convenience types
@@ -244,18 +249,12 @@ impl Stream for SllpIncoming {
             },
             Poll::Pending => return Poll::Pending,
         };
-        let (dec_data, _header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
+        let (_dec_data, header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
             Ok(retval) => retval,
             Err(e) => return Poll::Ready(Some(Err(e))),
         };
 
-        let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
-            Ok(data_len) => data_len,
-            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-        }) {
-            Ok(peer) => peer,
-            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-        };
+        let peer = ArtificePeer::new(header.global_peer_hash(), header.peer_hash(), addr.into(), None);
 
         Poll::Ready(Some(Ok(ConnectionRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
@@ -428,18 +427,12 @@ impl Stream for SllpSocket {
             },
             Poll::Pending => return Poll::Pending,
         };
-        let (dec_data, _header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
+        let (_dec_data, header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
             Ok(retval) => retval,
             Err(e) => return Poll::Ready(Some(Err(e))),
         };
 
-        let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
-            Ok(data_len) => data_len,
-            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-        }) {
-            Ok(peer) => peer,
-            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-        };
+        let peer = ArtificePeer::new(header.global_peer_hash(), header.peer_hash(), addr.into(), None);
 
         Poll::Ready(Some(Ok(ConnectionRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {

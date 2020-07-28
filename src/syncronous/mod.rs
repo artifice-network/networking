@@ -5,6 +5,7 @@ use crate::ArtificeHost;
 use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
 pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
+use crate::PubKeyComp;
 use std::net::SocketAddr;
 use std::{
     io::{Read, Write},
@@ -47,6 +48,10 @@ impl ArtificeStream for SyncStream {
     }
     fn header(&self) -> &Header {
         &self.header
+    }
+    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self{
+        self.header.set_pubkey(pubkey);
+        self
     }
 }
 impl SyncStream {
@@ -120,9 +125,12 @@ impl SyncStream {
         Ok(buf.len())
     }
     /// send data to the peer
-    pub fn send(&mut self, buf: &[u8]) -> std::io::Result<usize> {
+    pub fn send(&mut self, buf: &[u8]) -> Result<usize, NetworkError> {
         println!("buf: {:?}", buf);
-        let key = self.peer().pubkeycomp();
+        let key = match self.peer().pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         let public_key = RSAPublicKey::new(key.n().into(), key.e().into()).unwrap();
         let mut buffer = Vec::new();
         self.header.set_len(buf.len());
@@ -134,7 +142,7 @@ impl SyncStream {
         buffer.extend_from_slice(buf);
         let enc_data = rsa_encrypt(&public_key, &buffer).expect("failed to encrypt");
         let mut stream = self.stream.lock().unwrap();
-        stream.write(&enc_data)
+        Ok(stream.write(&enc_data)?)
     }
 }
 /// host object, artifice network implementation of TcpListener
@@ -211,7 +219,10 @@ impl SyncHost {
     pub fn connect(&self, peer: ArtificePeer) -> Result<SyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr())?;
         // encrypt the peer before sending
-        let key = peer.pubkeycomp();
+        let key = match peer.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
         let public_key =
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
