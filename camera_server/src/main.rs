@@ -17,6 +17,7 @@ async fn run() -> Result<(), ExampleError> {
     let mut socket = SllpSocket::from_host_data(&config).await.unwrap();
     // peer can be anything that implements PeerList
     while let Some(Ok(strm)) = socket.incoming().await {
+        // verifies that a peer is allow to connect
         let stream = strm.verify(&peer).unwrap();
         println!("new connection verified");
         run_server(stream).await.unwrap();
@@ -25,9 +26,7 @@ async fn run() -> Result<(), ExampleError> {
 }
 async fn run_server(mut socket: SllpStream) -> Result<(), ExampleError> {
     let window = "video capture";
-    println!("before loop");
     highgui::named_window(window, 1)?;
-    //let mut socket = UdpSocket::bind("0.0.0.0:6464").unwrap();
     let mut read_buf = Vec::new();
     let mut vec: core::Vector<u8> = core::Vector::with_capacity(65535);
     loop {

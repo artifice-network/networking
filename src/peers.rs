@@ -270,7 +270,6 @@ impl ArtificePeer {
         pubkey: Option<PubKeyComp>,
     ) -> Self {
         let routable = true; //IpAddr::from(addr).is_global();
-        println!("in ArtificePeer::new()");
         Self {
             global_peer_hash: global_peer_hash.to_string(),
             addr,
@@ -314,17 +313,10 @@ impl ArtificePeer {
 }
 impl PeerList for ArtificePeer {
     fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp> {
-        println!(
-            "remote global: {}, remote peer: {}, local global: {}, local peer: {}",
-            self.global_peer_hash(),
-            peer.global_peer_hash(),
-            self.peer_hash(),
-            self.peer_hash(),
-        );
-        if "adac".to_string() == "adac".to_string() {
-            peer.pubkeycomp().clone()
+        if self == peer {
+            self.pubkeycomp().clone()
         } else {
-            peer.pubkeycomp().clone()
+            None
         }
     }
     fn get_peer(&self, key: &str) -> Option<ArtificePeer> {
