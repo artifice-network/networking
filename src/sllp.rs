@@ -192,10 +192,6 @@ impl ArtificeStream for SllpStream {
 // ===================================================================================
 //                             Convenience types
 // ===================================================================================
-#[test]
-fn sender_size() {
-    assert_eq!(std::mem::size_of::<Streams>(), 0);
-}
 /// messages sent from the socket to the main program use this format
 pub type IncomingMsg = (Vec<u8>, usize);
 /// messages sent from main to the socket use this format

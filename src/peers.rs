@@ -182,12 +182,17 @@ impl From<Layer3Addr> for IpAddr {
         }
     }
 }
+impl From<&IpAddr> for Layer3Addr{
+    fn from(addr: &IpAddr) -> Self{
+        Self::from(*addr)
+    }
+}
 /// make sure that bit shifting/as works as expected
 #[test]
 pub fn back_and_forth() {
     let ipv6addr = IpAddr::V6(Ipv6Addr::new(0, 0, 0, 0, 0, 0, 0, 0));
-    let layer3addr = Layer3Addr::from_ipaddr(&ipv6addr);
-    let newipaddr = layer3addr.as_ipaddr();
+    let layer3addr = Layer3Addr::from(&ipv6addr);
+    let newipaddr: IpAddr = layer3addr.into();
     assert_eq!(ipv6addr, newipaddr);
 }
 /// used as a precursor to artifice peer, principly it is used to store information about a given peer
