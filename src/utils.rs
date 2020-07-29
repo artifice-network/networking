@@ -183,3 +183,14 @@ impl<S, R> Query for SyncQuery<S, R> {
         (&mut self.sender, &mut self.receiver)
     }
 }
+
+// ================================================================
+//                          Tests
+// ================================================================
+#[test]
+fn random_string_test(){
+    use std::time::SystemTime;
+    let time1 = SystemTime::now();
+    let first_string = random_string(16);
+    assert!(time1.elapsed().unwrap().as_micros() < 300);
+}

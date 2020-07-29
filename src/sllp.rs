@@ -363,7 +363,58 @@ impl Default for Streams {
 // =================================================================
 //               Split Types for SLLP Socket
 // ==================================================================
+#[derive(Debug)]
+pub struct OwnedIncoming {
+    priv_key: RSAPrivateKey,
+    receiver: Receiver<NewConnection>,
+}
+impl OwnedIncoming{
+    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self{
+        Self {priv_key, receiver}
+    }
+    pub fn incoming(&mut self) -> &mut Self{
+        self
+    }
+}
+impl Stream for OwnedIncoming {
+    type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+        let (data, data_len, addr, query) = match self.receiver.poll_recv(ctx) {
+            Poll::Ready(data) => match data {
+                Some(data) => data,
+                None => return Poll::Ready(None),
+            },
+            Poll::Pending => return Poll::Pending,
+        };
+        let (_dec_data, header) = match aes_decrypt(&self.priv_key, &data[0..data_len]) {
+            Ok(retval) => retval,
+            Err(e) => return Poll::Ready(Some(Err(e))),
+        };
 
+        let peer = ArtificePeer::new(
+            header.global_peer_hash(),
+            header.peer_hash(),
+            addr.into(),
+            None,
+        );
+
+        Poll::Ready(Some(Ok(AsyncRequest::new(
+            match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
+                Ok(stream) => stream,
+                Err(e) => return Poll::Ready(Some(Err(e))),
+            },
+        ))))
+    }
+}
+impl Future for OwnedIncoming {
+    type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+        match self.poll_next(ctx) {
+            Poll::Ready(val) => Poll::Ready(val),
+            Poll::Pending => Poll::Pending,
+        }
+    }
+}
 /// incoming half of SllpSocket allows for listening for new connections but not opening new connections
 #[derive(Debug)]
 pub struct SllpIncoming<'a> {
@@ -412,6 +463,27 @@ impl<'a> Future for SllpIncoming<'a> {
             Poll::Ready(val) => Poll::Ready(val),
             Poll::Pending => Poll::Pending,
         }
+    }
+}
+#[derive(Debug, Clone)]
+pub struct OwnedOutgoing {
+    streams: Streams,
+    priv_key: RSAPrivateKey,
+    outgoing_sender: Sender<OutgoingMsg>,
+}
+impl OwnedOutgoing {
+    pub fn new(streams: Streams, priv_key: RSAPrivateKey, outgoing_sender: Sender<OutgoingMsg>) -> Self{
+        Self{streams, priv_key, outgoing_sender}
+    }
+    pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
+        let (incoming_sender, incoming_receiver) = channel(1);
+        let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
+        let stream = SllpStream::new(query, self.priv_key.clone(), &peer, peer.socket_addr());
+        self.streams
+            .lock()
+            .await
+            .insert(peer.socket_addr(), incoming_sender);
+        stream.unwrap()
     }
 }
 /// outgoing half of SllpSocket allows for opening connections, but not listening for new ones
@@ -555,6 +627,12 @@ impl SllpSocket {
         (
             SllpOutgoing::new(&self.streams, &self.priv_key, &self.outgoing_sender),
             SllpIncoming::new(&self.priv_key, &mut self.receiver),
+        )
+    }
+    pub fn into_split(self) -> (OwnedOutgoing, OwnedIncoming) {
+        (
+            OwnedOutgoing::new(self.streams, self.priv_key.clone(), self.outgoing_sender),
+            OwnedIncoming::new(self.priv_key, self.receiver)
         )
     }
     pub fn incoming(&mut self) -> &mut Self {

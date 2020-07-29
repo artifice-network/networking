@@ -55,6 +55,37 @@ pub fn asym_aes_encrypt(
     //output.append(&mut outvec);
     Ok(output)
 }
+/*pub fn aes_inplace_decrypt(priv_key: &RSAPrivateKey, input: &mut Vec<u8>) -> Result<StreamHeader, NetworkError>{
+    println!("function called");
+    let padding = PaddingScheme::new_pkcs1v15_encrypt();
+    let mut header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
+    let rem = header.remander();
+    let data_len = header.packet_len();
+    let decryptor = AesSafe128DecryptorX8::new(header.key());
+    let mut index = 256;
+    //let mut read_data: [u8; 128] = [0; 128];
+    while index < data_len + 256 {
+        let (outbuf, inbuf) = input.split_at_mut(index);
+        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index-256..index-128]);
+        index += 128;
+    }
+    let newlen = input.len() - (rem as usize);
+    println!("out of decrypt loop, newlen: {}", newlen);
+    if data_len + 256 < newlen {
+        let len = input.len();
+        let (write, read) = input.split_at_mut(data_len);
+        println!("data len: {}, rem: {}", data_len, rem);
+        std::io::copy(&mut &read[0..256], &mut &mut write[data_len-256-(rem as usize)..data_len-(rem as usize)])?;
+        println!("after io copy re-calling with len: {}", len);
+        let stream_header =
+            aes_inplace_decrypt(priv_key, &mut input[data_len-256-(rem as usize)..len])?;
+        header = stream_header;
+    }else{
+        input.truncate(data_len - (rem as usize));
+    }
+    println!("about to return");
+    Ok(header)
+}*/
 // ===============================================================================
 //                          AES Decryption
 // ================================================================================
@@ -62,7 +93,7 @@ pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
     input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
-    assert!(input.len() < (65536));
+    assert!(input.len() < (65537));
     // create output vector
     let mut output = Vec::new();
     // decrypt the StreamHeader
@@ -93,15 +124,21 @@ pub fn asym_aes_decrypt(
 // =============================================================================
 #[test]
 fn encrypt_test() {
+    use std::time::SystemTime;
+    let time = SystemTime::now();
     use crate::random_string;
     let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
     let private_key = crate::get_private_key();
     let public_key = RSAPublicKey::from(&private_key);
-    let instr = random_string(43235);
+    let instr = random_string(65535 - 256);
     let indata = instr.clone().into_bytes();
+    println!("meta data len: {}", indata.len());
     //let mut outvec = Vec::new();
-    let outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
-    let (dec_buf, _) = asym_aes_decrypt(&private_key, &outvec).unwrap();
-    assert_eq!(indata.len(), dec_buf.len());
-    assert_eq!(indata, dec_buf);
+    let mut outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
+    let (outbuf, _) = asym_aes_decrypt(&private_key, &outvec).unwrap();
+    assert_eq!(indata.len(), outbuf.len());
+    assert_eq!(indata, outbuf);
+    let elapsed = time.elapsed().unwrap().as_millis();
+    println!("{}", elapsed);
+    assert!(300 > elapsed);
 }
