@@ -55,37 +55,25 @@ pub fn asym_aes_encrypt(
     //output.append(&mut outvec);
     Ok(output)
 }
-/*pub fn aes_inplace_decrypt(priv_key: &RSAPrivateKey, input: &mut Vec<u8>) -> Result<StreamHeader, NetworkError>{
+pub fn aes_inplace_decrypt(priv_key: &RSAPrivateKey, input: &mut Vec<u8>) -> Result<StreamHeader, NetworkError>{
     println!("function called");
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     let mut header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
-    let mut index = 256;
+    let mut index = 0;
     //let mut read_data: [u8; 128] = [0; 128];
-    while index < data_len + 256 {
-        let (outbuf, inbuf) = input.split_at_mut(index);
-        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index-256..index-128]);
-        index += 128;
+    while index < data_len {
+        let (outbuf, inbuf) = input.split_at_mut(index + 256);
+        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index+128]);
+        index = index + 128;
     }
-    let newlen = input.len() - (rem as usize);
-    println!("out of decrypt loop, newlen: {}", newlen);
-    if data_len + 256 < newlen {
-        let len = input.len();
-        let (write, read) = input.split_at_mut(data_len);
-        println!("data len: {}, rem: {}", data_len, rem);
-        std::io::copy(&mut &read[0..256], &mut &mut write[data_len-256-(rem as usize)..data_len-(rem as usize)])?;
-        println!("after io copy re-calling with len: {}", len);
-        let stream_header =
-            aes_inplace_decrypt(priv_key, &mut input[data_len-256-(rem as usize)..len])?;
-        header = stream_header;
-    }else{
-        input.truncate(data_len - (rem as usize));
-    }
-    println!("about to return");
+    input.truncate(input.len() - (rem as usize + 256));
+    println!("len: {}", input.len());
+    //assert_eq!(String::from_utf8(input), instr.to_string());
     Ok(header)
-}*/
+}
 // ===============================================================================
 //                          AES Decryption
 // ================================================================================
@@ -135,10 +123,10 @@ fn encrypt_test() {
     println!("meta data len: {}", indata.len());
     //let mut outvec = Vec::new();
     let mut outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
-    let (outbuf, _) = asym_aes_decrypt(&private_key, &outvec).unwrap();
-    assert_eq!(indata.len(), outbuf.len());
-    assert_eq!(indata, outbuf);
+    aes_inplace_decrypt(&private_key, &mut outvec).unwrap();
+    assert_eq!(indata.len(), outvec.len());
+    assert_eq!(indata, outvec);
     let elapsed = time.elapsed().unwrap().as_millis();
     println!("{}", elapsed);
-    assert!(300 > elapsed);
+    assert!(200 > elapsed);
 }

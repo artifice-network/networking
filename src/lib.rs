@@ -153,7 +153,7 @@ use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::net::{ToSocketAddrs};
 use std::{
     convert::TryInto,
-    net::UdpSocket,
+    net::{UdpSocket, SocketAddr},
     sync::mpsc::{channel, RecvTimeoutError, Sender},
     thread,
     time::Duration,
@@ -198,6 +198,9 @@ impl ArtificeConfig {
     }
     pub fn socket_addr(&self) -> Layer3SocketAddr {
         self.addr
+    }
+    pub fn set_socket_addr(&mut self, addr: SocketAddr){
+        self.addr = addr.into();
     }
 }
 

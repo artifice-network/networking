@@ -540,6 +540,7 @@ impl AsyncNetworkHost for SllpSocket {
         let data = config.host_data();
         let priv_key_comp = data.privkeycomp();
         let socket_addr: SocketAddr = config.socket_addr().into();
+        println!("binding t oaddress: {:?}", socket_addr);
         let priv_key = RSAPrivateKey::from_components(
             priv_key_comp.n().into(),
             priv_key_comp.e().into(),
