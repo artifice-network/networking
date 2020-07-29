@@ -3,11 +3,12 @@
 use networking::{
     sllp::{SllpSocket, SllpStream},
     test_config,
+    ConnectionRequest,
 };
 use opencv::{core, highgui, imgcodecs::imdecode, prelude::VectorTrait};
 use std::error::Error;
 use tokio::runtime::Runtime;
-use networking::asyncronous::AsyncRecv;
+use networking::asyncronous::{AsyncRecv, AsyncNetworkHost};
 
 fn main() {
     let mut runtime = Runtime::new().unwrap();
@@ -15,7 +16,7 @@ fn main() {
 }
 async fn run() -> Result<(), ExampleError> {
     let (peer, config) = test_config();
-    let mut socket = SllpSocket::from_host_data(&config).await.unwrap();
+    let mut socket = SllpSocket::from_host_config(&config).await.unwrap();
     // peer can be anything that implements PeerList
     while let Some(Ok(strm)) = socket.incoming().await {
         // verifies that a peer is allow to connect

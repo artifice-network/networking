@@ -8,5 +8,5 @@ edition = "2018"
 
 [dependencies]
 tokio = "*"
-networking = {path = "../"}
+networking = {path = "../../"}
 opencv = {version = "0.37", features = ["buildtime-bindgen"]}

@@ -1,11 +1,11 @@
 // the point of this example is to show large data transimissions over the network
 // future example implementation will support data transmission greater then 65535
-use networking::{sllp::SllpSocket, test_config};
+use networking::{sllp::SllpSocket, test_config, ConnectionRequest};
 use opencv::{core, imgcodecs::*, prelude::*, videoio};
 use std::error::Error;
 use std::fmt;
 use tokio::runtime::{Handle, Runtime};
-use networking::asyncronous::AsyncSend;
+use networking::asyncronous::{AsyncSend, AsyncNetworkHost};
 use std::net::{SocketAddr, IpAddr, Ipv4Addr};
 
 #[derive(Debug)]
@@ -32,8 +32,9 @@ impl From<networking::error::NetworkError> for ExampleError {
 }
 
 async fn run(_handle: Handle) -> Result<(), ExampleError> {
-    let (mut peer, config) = test_config();
-    let socket = SllpSocket::from_host_data(&config).await.unwrap();
+    let (mut peer, mut config) = test_config();
+    config.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), 3232));
+    let socket = SllpSocket::from_host_config(&config).await.unwrap();
     // the test peers address is localhost, but this example can only be run between two computersheader)
     // file in ip with remote ip
     peer.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(127,0,0,1)), 6464));

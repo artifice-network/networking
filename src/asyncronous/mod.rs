@@ -21,11 +21,29 @@ use std::pin::Pin;
 use std::sync::mpsc::Sender;
 use tokio::io::AsyncRead;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::{net::TcpListener, net::TcpStream, stream::Stream};
+use tokio::{net::TcpListener, net::TcpStream, stream::Stream, net::tcp::{WriteHalf, ReadHalf}};
 
 // ===============================================================================
 //                                   Async Stream
 // ================================================================================
+pub struct StreamSend<'a> {
+    writer: WriteHalf<'a>,
+    remote_addr: SocketAddr,
+}
+impl<'a> StreamSend<'a>{
+    pub fn new(writer: WriteHalf<'a>, remote_addr: SocketAddr) -> Self{
+        Self {writer, remote_addr}
+    }
+}
+pub struct StreamRecv<'a>{
+    reader: ReadHalf<'a>,
+}
+impl<'a> StreamRecv<'a>{
+    pub fn new(reader: ReadHalf<'a>) -> Self{
+        Self {reader}
+    }
+}
+
 /// networking implementation that uses TCP to send information over the network
 #[derive(Debug)]
 pub struct AsyncStream {
@@ -60,7 +78,6 @@ impl AsyncRecv for AsyncStream {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
-        let mut buf = Vec::new();
         let mut data_len = self.stream.read(&mut buffer).await?;
         while data_len == 0 {
             data_len = self.stream.read(&mut buffer).await?;
@@ -73,25 +90,21 @@ impl AsyncRecv for AsyncStream {
         }
         // add data not part of the header from the first packet to the greater vector
         if header.packet_len() < 65536 {
-            buf.extend_from_slice(&dec_data[0..header.data_len()]);
+            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
         } else {
-            buf.extend_from_slice(&dec_data[0..65535]);
+            outbuf.extend_from_slice(&dec_data[0..65535]);
         }
         //hadle further packetsheader_len +
         while data_len < header.packet_len() {
             let mut temp_len = self.stream.read(&mut buffer).await?;
-            while temp_len == 0 {
-                temp_len = self.stream.read(&mut buffer).await?;
-            }
             let (dec_buffer, stream_header) =
                 aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
-            buf.extend_from_slice(&dec_buffer);
+            outbuf.extend_from_slice(&dec_buffer);
         }
-        outbuf.append(&mut buf);
-        Ok(buf.len())
+        Ok(outbuf.len())
     }
     fn pubkey(&self) -> &Option<PubKeyComp>{
         self.header.pubkeycomp()
@@ -233,8 +246,37 @@ impl Stream for AsyncHost {
     }
 }
 // ======================================================================================
-//                                       Incoming
+//                            split types for connections
 // ======================================================================================
+pub struct Outgoing<'a>{
+    priv_key: &'a RSAPrivateKey,
+}
+impl<'a> Outgoing<'a>{
+    pub fn new(priv_key: &'a RSAPrivateKey) -> Self{
+        Self {priv_key}
+    }
+    pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
+        let mut stream = TcpStream::connect(peer.socket_addr()).await?;
+        // encrypt the peer before sending
+        let key = match peer.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
+        let public_key =
+            RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
+        let data = serde_json::to_string(&peer)?.into_bytes();
+        let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
+        let enc_data = aes_encrypt(&public_key, stream_header, &data)?;
+        stream.write(&enc_data).await?;
+        let addr = peer.socket_addr();
+        Ok(AsyncStream::new(
+            stream,
+            self.priv_key.clone(),
+            &peer,
+            addr,
+        )?)
+    }
+}
 pub struct Incoming<'a> {
     listener: &'a mut TcpListener,
     priv_key: &'a RSAPrivateKey,

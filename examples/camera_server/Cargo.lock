@@ -102,7 +102,7 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 name = "camera_server"
 version = "0.1.0"
 dependencies = [
- "networking 0.1.6",
+ "networking 0.1.7",
  "opencv 0.37.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "tokio 0.2.22 (registry+https://github.com/rust-lang/crates.io-index)",
 ]
@@ -512,7 +512,7 @@ dependencies = [
 
 [[package]]
 name = "networking"
-version = "0.1.6"
+version = "0.1.7"
 dependencies = [
  "aes 0.4.0 (registry+https://github.com/rust-lang/crates.io-index)",
  "async-trait 0.1.36 (registry+https://github.com/rust-lang/crates.io-index)",
