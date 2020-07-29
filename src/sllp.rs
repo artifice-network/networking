@@ -1,7 +1,7 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
-use crate::async_query::AsyncQuery;
+use crate::AsyncQuery;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
@@ -166,7 +166,7 @@ impl AsyncRecv for SllpStream {
 }
 impl SllpStream {
     pub fn split(&mut self) -> (StreamSend, StreamRecv) {
-        let (sender, receiver) = self.query.ref_split();
+        let (sender, receiver) = self.query.split();
         (
             StreamSend::new(
                 self.header.stream_header(),

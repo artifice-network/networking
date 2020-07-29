@@ -5,6 +5,10 @@ use crate::{Layer3SocketAddr, Layer3Addr};
 pub use crate::{ArtificePeer, ArtificeConfig, ArtificeHostData};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use std::sync::mpsc::{channel, Receiver, Sender};
+
+use crate::error::NetworkError;
+use tokio::sync::mpsc::{channel as tokio_channel, Receiver as AsyncReceiver, Sender as AsyncSender};
 use std::iter;
 
 pub fn get_private_key() -> RSAPrivateKey {
@@ -85,4 +89,95 @@ pub fn random_string(len: usize) -> String {
         .map(|()| rng.sample(Alphanumeric))
         .take(len)
         .collect()
+}
+
+pub trait Query {
+    type Left;
+    type Right;
+    /// manually create using an existing sender and receiver
+    fn create(sender: Self::Left, receiver: Self::Right) -> Self;
+    /// split a query into its components
+    fn into_split(self) -> (Self::Left, Self::Right);
+    fn split(&mut self) -> (&mut Self::Left, &mut Self::Right);
+}
+
+pub fn async_channel<S, R>(len: usize) -> (AsyncQuery<R, S>, AsyncQuery<S, R>) {
+    let (l_sender, l_receiver): (AsyncSender<R>, AsyncReceiver<R>) = tokio_channel(len);
+    let (r_sender, r_receiver): (AsyncSender<S>, AsyncReceiver<S>) = tokio_channel(len);
+    (
+        AsyncQuery {
+            sender: l_sender,
+            receiver: r_receiver,
+        },
+        AsyncQuery {
+            sender: r_sender,
+            receiver: l_receiver,
+        },
+    )
+}
+#[derive(Debug)]
+pub struct AsyncQuery<S, R> {
+    sender: AsyncSender<S>,
+    receiver: AsyncReceiver<R>,
+}
+impl<S, R> AsyncQuery<S, R> {
+    pub async fn send(&mut self, data: S) -> Result<(), NetworkError> {
+        Ok(self.sender.send(data).await?)
+    }
+    pub async fn recv(&mut self) -> Option<R> {
+        Some(self.receiver.recv().await?)
+    }
+}
+impl<S, R> Query for AsyncQuery<S, R> {
+    type Left = AsyncSender<S>;
+    type Right = AsyncReceiver<R>;
+    fn create(sender: Self::Left, receiver: Self::Right) -> Self {
+        Self { sender, receiver }
+    }
+    fn into_split(self) -> (Self::Left, Self::Right) {
+        (self.sender, self.receiver)
+    }
+    fn split(&mut self) -> (&mut Self::Left, &mut Self::Right) {
+        (&mut self.sender, &mut self.receiver)
+    }
+}
+pub fn sync_channel<R, S>() -> (SyncQuery<R, S>, SyncQuery<S, R>) {
+    let (l_sender, l_receiver) = channel();
+    let (r_sender, r_receiver) = channel();
+    (
+        SyncQuery {
+            sender: l_sender,
+            receiver: r_receiver,
+        },
+        SyncQuery {
+            sender: r_sender,
+            receiver: l_receiver,
+        },
+    )
+}
+#[derive(Debug)]
+pub struct SyncQuery<S, R> {
+    sender: Sender<S>,
+    receiver: Receiver<R>,
+}
+impl<S, R> SyncQuery<S, R> {
+    pub fn send(&mut self, data: S) -> Result<(), NetworkError> {
+        Ok(self.sender.send(data)?)
+    }
+    pub fn recv(&mut self) -> Result<R, NetworkError> {
+        Ok(self.receiver.recv()?)
+    }
+}
+impl<S, R> Query for SyncQuery<S, R> {
+    type Left = Sender<S>;
+    type Right = Receiver<R>;
+    fn create(sender: Self::Left, receiver: Self::Right) -> Self {
+        Self { sender, receiver }
+    }
+    fn into_split(self) -> (Self::Left, Self::Right) {
+        (self.sender, self.receiver)
+    }
+    fn split(&mut self) -> (&mut Self::Left, &mut Self::Right) {
+        (&mut self.sender, &mut self.receiver)
+    }
 }

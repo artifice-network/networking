@@ -87,11 +87,7 @@ use encryption::*;
 pub mod asyncronous;
 /// contains the ArtificePeer struct
 pub mod peers;
-mod query;
-pub use query::asyncronous as async_query;
-pub use query::syncronous as sync_query;
-/// used for bi-directional communication
-pub use query::Query;
+/// used for bi-directional 
 
 /// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
 /// note that this module has no syncronous implementation
