@@ -1,15 +1,17 @@
-use rsa::{RSAPrivateKey};
 use crate::encryption::PubKeyComp;
+pub use crate::{ArtificeConfig, ArtificeHostData, ArtificePeer};
+use crate::{Layer3Addr, Layer3SocketAddr};
 use num_bigint_dig::BigUint;
-use crate::{Layer3SocketAddr, Layer3Addr};
-pub use crate::{ArtificePeer, ArtificeConfig, ArtificeHostData};
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
+use rsa::RSAPrivateKey;
 use std::sync::mpsc::{channel, Receiver, Sender};
 
 use crate::error::NetworkError;
-use tokio::sync::mpsc::{channel as tokio_channel, Receiver as AsyncReceiver, Sender as AsyncSender};
 use std::iter;
+use tokio::sync::mpsc::{
+    channel as tokio_channel, Receiver as AsyncReceiver, Sender as AsyncSender,
+};
 
 pub fn get_private_key() -> RSAPrivateKey {
     let n = BigUint::from_bytes_be(&vec![
@@ -69,8 +71,8 @@ pub fn get_private_key() -> RSAPrivateKey {
 /// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
 /// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
-    let peer_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(127,0,0,1), 6464);
-    let host_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0,0,0,0), 6464);
+    let peer_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(127, 0, 0, 1), 6464);
+    let host_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0, 0, 0, 0), 6464);
     let private_key = get_private_key();
     let pubkey = PubKeyComp::from(&private_key);
     // poorly named, global is unique to each host, and peer hash is a pre-shared key

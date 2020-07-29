@@ -3,10 +3,11 @@ use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
 use crate::PubKeyComp;
-use crate::{ArtificeConfig, ArtificeStream, ConnectionRequest, Header};
+use crate::PeerList;
+use crate::{ArtificeConfig, ConnectionRequest, Header};
 pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
-use std::net::SocketAddr;
+use std::net::{SocketAddr, IpAddr};
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -20,7 +21,7 @@ pub struct SyncStream {
     priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
-impl ArtificeStream for SyncStream {
+impl SyncDataStream for SyncStream {
     type NetStream = TcpStream;
     type Error = NetworkError;
     fn new(
@@ -49,7 +50,7 @@ impl ArtificeStream for SyncStream {
     fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
+    fn set_pubkey(mut self, pubkey: &PubKeyComp) -> Self {
         self.header.set_pubkey(pubkey);
         self
     }
@@ -111,7 +112,7 @@ pub struct SyncHost {
     stop_broadcast: Option<Sender<bool>>,
 }
 impl std::iter::Iterator for SyncHost {
-    type Item = Result<ConnectionRequest<SyncStream>, NetworkError>;
+    type Item = Result<SyncRequest<SyncStream>, NetworkError>;
     fn next(&mut self) -> Option<Self::Item> {
         match &self.listener {
             Some(listener) => match listener.incoming().next() {
@@ -134,7 +135,7 @@ impl std::iter::Iterator for SyncHost {
                         };
                         let peer =
                             serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
-                        Some(Ok(ConnectionRequest::new(
+                        Some(Ok(SyncRequest::new(
                             match SyncStream::new(stream, self.priv_key.clone(), &peer, addr) {
                                 Ok(stream) => stream,
                                 Err(e) => return Some(Err(e)),
@@ -219,5 +220,61 @@ impl ArtificeHost for SyncHost {
             Some(sender) => sender.send(false).unwrap(),
             None => (),
         }
+    }
+}
+pub trait SyncDataStream {
+    type NetStream;
+    type Error: std::error::Error;
+    fn new(
+        stream: Self::NetStream,
+        priv_key: RSAPrivateKey,
+        peer: &ArtificePeer,
+        remote_addr: SocketAddr,
+    ) -> Result<Self, Self::Error>
+    where
+        Self: std::marker::Sized;
+    fn addr(&self) -> IpAddr {
+        self.socket_addr().ip()
+    }
+    fn socket_addr(&self) -> SocketAddr;
+    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
+        let components = match self.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
+        Ok(RSAPublicKey::new(
+            components.n().into(),
+            components.e().into(),
+        )?)
+    }
+    fn pubkeycomp(&self) -> &Option<PubKeyComp> {
+        self.header().pubkeycomp()
+    }
+    fn peer(&self) -> &ArtificePeer{
+        self.header().peer()
+    }
+    fn header(&self) -> &Header;
+    fn set_pubkey(self, pubkey: &PubKeyComp) -> Self;
+}
+pub struct SyncRequest<T: SyncDataStream> {
+    stream: T,
+}
+impl<T: SyncDataStream> ConnectionRequest for SyncRequest<T> {
+    type Error = NetworkError;
+    type NetStream = T;
+    fn new(stream: Self::NetStream) -> Self {
+        Self {stream}
+    }
+    fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, NetworkError>{
+        if let Some(key) = list.verify_peer(&self.stream.peer()) {
+            Ok(self.stream.set_pubkey(&key))
+        } else {
+            Err(NetworkError::ConnectionDenied(
+                "verification of peer failed".to_string(),
+            ))
+        }
+    }
+    unsafe fn unverify(self) -> Self::NetStream {
+        self.stream
     }
 }

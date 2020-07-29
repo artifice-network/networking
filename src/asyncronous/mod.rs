@@ -3,8 +3,9 @@
 // ===================================================================
 use crate::ArtificeConfig;
 use crate::PubKeyComp;
-use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
+use crate::{error::NetworkError, ArtificePeer, Header, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
+use crate::PeerList;
 use async_trait::async_trait;
 use futures::{
     future::Future,
@@ -33,15 +34,15 @@ pub struct AsyncStream {
     priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
-impl ArtificeStream for AsyncStream {
+impl AsyncDataStream for AsyncStream {
     type NetStream = TcpStream;
-    type Error = NetworkError;
+    type StreamError = NetworkError;
     fn new(
         stream: Self::NetStream,
         priv_key: RSAPrivateKey,
         peer: &ArtificePeer,
         remote_addr: SocketAddr,
-    ) -> Result<Self, Self::Error> {
+    ) -> Result<Self, Self::StreamError> {
         let header = Header::new(peer);
         Ok(Self {
             header,
@@ -50,32 +51,13 @@ impl ArtificeStream for AsyncStream {
             remote_addr,
         })
     }
-    fn peer(&self) -> &ArtificePeer {
-        self.header.peer()
-    }
-    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        self.header.pubkey()
-    }
-    fn socket_addr(&self) -> SocketAddr {
-        self.remote_addr
-    }
-    fn addr(&self) -> IpAddr {
-        self.remote_addr.ip()
-    }
-    fn header(&self) -> &Header {
-        &self.header
-    }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
-        self.header.set_pubkey(pubkey);
-        self
-    }
 }
 // ====================================== ====================================================
 //                                    Impl Async Stream
 // =============================================================================================
 #[async_trait]
 impl AsyncRecv for AsyncStream {
-    type Error = NetworkError;
+    type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut buf = Vec::new();
@@ -111,13 +93,22 @@ impl AsyncRecv for AsyncStream {
         outbuf.append(&mut buf);
         Ok(buf.len())
     }
+    fn pubkey(&self) -> &Option<PubKeyComp>{
+        self.header.pubkeycomp()
+    }
+    fn header(&self) -> &Header{
+        &self.header
+    }
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+        self.header.set_pubkey(pubkey)
+    }
 }
 #[async_trait]
 impl AsyncSend for AsyncStream {
-    type Error = NetworkError;
+    type SendError = NetworkError;
     /// send data to the peer
     async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let key = match self.peer().pubkeycomp() {
+        let key = match self.pubkey() {
             Some(pubkey) => pubkey,
             None => return Err(NetworkError::UnSet("public key not set".to_string())),
         };
@@ -127,9 +118,9 @@ impl AsyncSend for AsyncStream {
         let enc_data = aes_encrypt(&public_key, stream_header, &buffer)?;
         Ok(self.stream.write(&enc_data).await?)
     }
-}
-impl AsyncDataStream for AsyncStream {
-    type Error = NetworkError;
+    fn remote_addr(&self) -> &SocketAddr{
+        &self.remote_addr
+    }
 }
 // ===================================================================================
 //                                 Async Host
@@ -230,7 +221,7 @@ impl AsyncHost {
     }
 }
 impl Stream for AsyncHost {
-    type Item = Result<ConnectionRequest<AsyncStream>, NetworkError>;
+    type Item = Result<AsyncRequest<AsyncStream>, NetworkError>;
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         Incoming::poll_next(
             Pin::new(&mut match self.incoming() {
@@ -254,7 +245,7 @@ impl<'a> Incoming<'a> {
     }
 }
 impl<'a> Stream for Incoming<'a> {
-    type Item = Result<ConnectionRequest<AsyncStream>, NetworkError>;
+    type Item = Result<AsyncRequest<AsyncStream>, NetworkError>;
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         match self.listener.poll_accept(ctx) {
             Poll::Ready(stream) => {
@@ -286,7 +277,7 @@ impl<'a> Stream for Incoming<'a> {
                             Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
                         };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
-                        Poll::Ready(Some(Ok(ConnectionRequest::new(
+                        Poll::Ready(Some(Ok(AsyncRequest::new(
                             match AsyncStream::new(strm, self.priv_key.clone(), &peer, addr) {
                                 Ok(stream) => stream,
                                 Err(e) => return Poll::Ready(Some(Err(e))),
@@ -301,25 +292,46 @@ impl<'a> Stream for Incoming<'a> {
     }
 }
 impl<'a> Future for Incoming<'a> {
-    type Output = Option<Result<ConnectionRequest<AsyncStream>, NetworkError>>;
+    type Output = Option<Result<AsyncRequest<AsyncStream>, NetworkError>>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         Stream::poll_next(self, ctx)
     }
 }
 #[async_trait]
 pub trait AsyncSend {
-    type Error: Error;
-    async fn send(&mut self, outbuf: &[u8]) -> Result<usize, Self::Error>;
+    type SendError: Error;
+    async fn send(&mut self, outbuf: &[u8]) -> Result<usize, Self::SendError>;
+    fn remote_addr(&self) -> &SocketAddr;
 }
 #[async_trait]
 pub trait AsyncRecv {
-    type Error: Error;
-    async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<usize, Self::Error>;
+    type RecvError: Error;
+    async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<usize, Self::RecvError>;
+    fn pubkey(&self) -> &Option<PubKeyComp>;
+    fn header(&self) -> &Header;
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp);
 }
 /// currently only used as a marker, will implement more functionality in the future
 #[async_trait]
 pub trait AsyncDataStream: AsyncSend + AsyncRecv {
-    type Error: Error;
+    type NetStream;
+    type StreamError: Error;
+    fn new(
+        stream: Self::NetStream,
+        priv_key: RSAPrivateKey,
+        peer: &ArtificePeer,
+        remote_addr: SocketAddr,
+    ) -> Result<Self, Self::StreamError>
+    where Self: std::marker::Sized;
+    fn remote_port(&self) -> u16 {
+        self.remote_addr().port()
+    }
+    fn remote_ip(&self) -> IpAddr {
+        self.remote_addr().ip()
+    }
+    fn peer(&self) -> &ArtificePeer{
+        self.header().peer()
+    }
 }
 /// shared behavior between SllpSocket, and AsyncHost
 #[async_trait]
@@ -328,4 +340,27 @@ pub trait AsyncNetworkHost: Stream {
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, Self::Error>
     where
         Self: std::marker::Sized;
+}
+pub struct AsyncRequest<T: AsyncDataStream> {
+    stream: T,
+}
+impl<T: AsyncDataStream> ConnectionRequest for AsyncRequest<T> {
+    type Error = NetworkError;
+    type NetStream = T;
+    fn new(stream: Self::NetStream) -> Self {
+        Self {stream}
+    }
+    fn verify<L: PeerList>(mut self, list: &L) -> Result<Self::NetStream, Self::Error>{
+        if let Some(key) = list.verify_peer(&self.stream.peer()) {
+            self.stream.set_pubkey(&key);
+            Ok(self.stream)
+        } else {
+            Err(NetworkError::ConnectionDenied(
+                "verification of peer failed".to_string(),
+            ))
+        }
+    }
+    unsafe fn unverify(self) -> Self::NetStream {
+        self.stream
+    }
 }

@@ -4,7 +4,7 @@ for async examples see <a href="https://crates.io/crates/networking">crates.io</
 ## Sync Server
 
 ``` ignore
-use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer, ArtificeStream};
+use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer, SyncDataStream};
 
 let (peer, config) = test_config();
 let host = SyncHost::from_host_data(&config).unwrap();
@@ -87,7 +87,7 @@ use encryption::*;
 pub mod asyncronous;
 /// contains the ArtificePeer struct
 pub mod peers;
-/// used for bi-directional 
+/// used for bi-directional
 
 /// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
 /// note that this module has no syncronous implementation
@@ -148,9 +148,9 @@ use crate::error::NetworkError;
 
 pub use peers::*;
 pub mod utils;
-pub use utils::*;
+use std::error::Error;
 use rsa::{RSAPrivateKey, RSAPublicKey};
-use std::net::{IpAddr, SocketAddr, ToSocketAddrs};
+use std::net::{ToSocketAddrs};
 use std::{
     convert::TryInto,
     net::UdpSocket,
@@ -158,6 +158,7 @@ use std::{
     thread,
     time::Duration,
 };
+pub use utils::*;
 /// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
@@ -289,7 +290,7 @@ impl Header {
     pub fn set_len(&mut self, len: usize) {
         self.packet_len = len;
     }
-    pub fn set_pubkey(&mut self, pubkey: PubKeyComp) {
+    pub fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
         self.peer.set_pubkey(pubkey);
     }
 }
@@ -388,56 +389,7 @@ fn header_to_raw_from_raw() {
     let new_header = StreamHeader::from_raw(&raw).unwrap();
     assert_eq!(stream_header, new_header);
 }
-/// trait used to implement common features between async and syncrounous networking protocols
-/// note about this trait, it defines only the shared behavior that doesn't require high levels of IO owing to the fact that
-/// async funnctions currently can't be members of traits, I would ask that any implementation of this trait, also provides
-/// certain methods, found in the implementations in this crate
-///
-/// # methods to include
-///
-/// ``` ignore
-/// fn send(&mut self, inbuf: &vec![u8]) -> Result<usize, Box<dyn Error>>
-/// fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, Box<dyn Error>>
-/// fn connect(peer: &ArtificePeer) -> Result<Self, Box<dyn Error>>
-/// ```
-/// # why these functions
-/// reason for using these functions include
-/// <ul>
-/// <li>increased freedom over Write/AsyncWrite and Read/AsyncRead, such as chose of error</li>
-/// <li>vectors are difficult to write to when in the form of a slice, this way methods such as append, and extend_from_slice can be used</li>
-/// </ul>
-pub trait ArtificeStream {
-    type NetStream;
-    type Error: std::error::Error;
-    fn new(
-        stream: Self::NetStream,
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
-        remote_addr: SocketAddr,
-    ) -> Result<Self, Self::Error>
-    where
-        Self: std::marker::Sized;
-    fn addr(&self) -> IpAddr {
-        self.socket_addr().ip()
-    }
-    fn socket_addr(&self) -> SocketAddr;
-    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        let components = match self.pubkeycomp() {
-            Some(pubkey) => pubkey,
-            None => return Err(NetworkError::UnSet("public key not set".to_string())),
-        };
-        Ok(RSAPublicKey::new(
-            components.n().into(),
-            components.e().into(),
-        )?)
-    }
-    fn pubkeycomp(&self) -> &Option<PubKeyComp> {
-        self.header().pubkeycomp()
-    }
-    fn peer(&self) -> &ArtificePeer;
-    fn header(&self) -> &Header;
-    fn set_pubkey(self, pubkey: PubKeyComp) -> Self;
-}
+
 /// used to set discoverability on the local network
 pub trait ArtificeHost {
     fn begin_broadcast<S: ToSocketAddrs>(socket_addr: S) -> std::io::Result<Sender<bool>> {
@@ -457,28 +409,14 @@ pub trait ArtificeHost {
     }
     fn stop_broadcasting(&self);
 }
-/// used to unlock network streams, to provent unauthorized peers
-pub struct ConnectionRequest<T: ArtificeStream> {
-    stream: T,
-}
-impl<T: ArtificeStream> ConnectionRequest<T> {
-    pub fn new(stream: T) -> Self {
-        Self { stream }
-    }
+pub trait ConnectionRequest {
+    type Error: Error;
+    type NetStream;
+    fn new(stream: Self::NetStream) -> Self;
     /// used to ensure only known peers are allow to connect
-    pub fn verify<L: PeerList>(self, list: &L) -> Result<T, NetworkError> {
-        if let Some(key) = list.verify_peer(&self.stream.peer()) {
-            Ok(self.stream.set_pubkey(key))
-        } else {
-            Err(NetworkError::ConnectionDenied(
-                "verification of peer failed".to_string(),
-            ))
-        }
-    }
+    fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, Self::Error>;
     /// # Safety
     /// this function allows unauthorized peers to connect to this device
     /// should only be used if a pair request is being run
-    pub unsafe fn unverify(self) -> T {
-        self.stream
-    }
+    unsafe fn unverify(self) -> Self::NetStream;
 }

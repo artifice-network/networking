@@ -1,24 +1,24 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
-use crate::AsyncQuery;
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
-use crate::asyncronous::{AsyncNetworkHost, AsyncRecv, AsyncSend};
+use crate::asyncronous::{AsyncNetworkHost, AsyncRecv, AsyncSend, AsyncDataStream};
 use crate::ArtificeConfig;
-use crate::ConnectionRequest;
+use crate::{AsyncQuery, ConnectionRequest};
+use crate::asyncronous::AsyncRequest;
 use crate::PubKeyComp;
 use crate::Query;
-use crate::{error::NetworkError, ArtificePeer, ArtificeStream, Header, StreamHeader};
+use crate::{error::NetworkError, ArtificePeer, Header, StreamHeader};
 use async_trait::async_trait;
 use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use rsa::RSAPrivateKey;
+use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::collections::HashMap;
-use std::net::{IpAddr, SocketAddr};
+use std::net::{SocketAddr};
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{
@@ -29,21 +29,15 @@ use tokio::{net::UdpSocket, stream::Stream};
 // ==========================================================================
 //                          Split type for Sllp Stream
 // ==========================================================================
-/// send half of SllpStream
 
 #[derive(Debug)]
-pub struct StreamRecv<'a> {
-    header: &'a mut Header,
-    priv_key: &'a RSAPrivateKey,
-    receiver: &'a mut Receiver<IncomingMsg>,
+pub struct OwnedSllpReceiver {
+    header: Header,
+    priv_key: RSAPrivateKey,
+    receiver: Receiver<IncomingMsg>,
 }
-
-impl<'a> StreamRecv<'a> {
-    pub fn new(
-        header: &'a mut Header,
-        priv_key: &'a RSAPrivateKey,
-        receiver: &'a mut Receiver<IncomingMsg>,
-    ) -> Self {
+impl OwnedSllpReceiver {
+    pub fn new(header: Header, priv_key: RSAPrivateKey, receiver: Receiver<IncomingMsg>) -> Self {
         Self {
             header,
             priv_key,
@@ -52,8 +46,8 @@ impl<'a> StreamRecv<'a> {
     }
 }
 #[async_trait]
-impl<'a> AsyncRecv for StreamRecv<'a> {
-    type Error = NetworkError;
+impl AsyncRecv for OwnedSllpReceiver {
+    type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let (data, data_len) = match self.receiver.recv().await {
             Some(result) => result,
@@ -73,17 +67,119 @@ impl<'a> AsyncRecv for StreamRecv<'a> {
         outbuf.extend_from_slice(&dec_data);
         Ok(data_len)
     }
+    fn pubkey(&self) -> &Option<PubKeyComp>{
+        self.header.pubkeycomp()
+    }
+    fn header(&self) -> &Header{
+        &self.header
+    }
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+        self.header.set_pubkey(pubkey);
+    }
 }
 
 /// send half of SllpStream
 #[derive(Debug)]
-pub struct StreamSend<'a> {
+pub struct SllpReceiver<'a> {
+    header: &'a mut Header,
+    priv_key: &'a RSAPrivateKey,
+    receiver: &'a mut Receiver<IncomingMsg>,
+}
+
+impl<'a> SllpReceiver<'a> {
+    pub fn new(
+        header: &'a mut Header,
+        priv_key: &'a RSAPrivateKey,
+        receiver: &'a mut Receiver<IncomingMsg>,
+    ) -> Self {
+        Self {
+            header,
+            priv_key,
+            receiver,
+        }
+    }
+}
+#[async_trait]
+impl<'a> AsyncRecv for SllpReceiver<'a> {
+    type RecvError = NetworkError;
+    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
+        let (data, data_len) = match self.receiver.recv().await {
+            Some(result) => result,
+            None => {
+                return Err(NetworkError::IOError(std::io::Error::new(
+                    std::io::ErrorKind::ConnectionReset,
+                    "channel closed",
+                )))
+            }
+        };
+        let (dec_data, header) = aes_decrypt(&self.priv_key, &data[0..data_len])?;
+        if header != self.header.stream_header() {
+            return Err(NetworkError::ConnectionDenied(
+                "potential man in the middle attack".to_string(),
+            ));
+        }
+        outbuf.extend_from_slice(&dec_data);
+        Ok(data_len)
+    }
+    fn pubkey(&self) -> &Option<PubKeyComp>{
+        self.header.pubkeycomp()
+    }
+    fn header(&self) -> &Header{
+        self.header
+    }
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+        self.header.set_pubkey(pubkey)
+    }
+}
+/// owned half of SllpSender
+#[derive(Debug, Clone)]
+pub struct OwnedSllpSender {
+    header: StreamHeader,
+    pubkey: RSAPublicKey,
+    remote_addr: SocketAddr,
+    sender: Sender<OutgoingMsg>,
+}
+impl OwnedSllpSender {
+    pub fn new(
+        header: StreamHeader,
+        pubkey: RSAPublicKey,
+        remote_addr: SocketAddr,
+        sender: Sender<OutgoingMsg>,
+    ) -> Self {
+        Self {
+            header,
+            pubkey,
+            remote_addr,
+            sender,
+        }
+    }
+}
+#[async_trait]
+impl AsyncSend for OwnedSllpSender {
+    type SendError = NetworkError;
+    async fn send(&mut self, inbuf: &[u8]) -> Result<usize, NetworkError> {
+        self.sender
+            .send((
+                aes_encrypt(&self.pubkey, self.header.clone(), inbuf)?,
+                self.remote_addr,
+            ))
+            .await?;
+        Ok(inbuf.len())
+    }
+    fn remote_addr(&self) -> &SocketAddr{
+        &self.remote_addr
+    }
+}
+
+/// send half of SllpStream
+#[derive(Debug)]
+pub struct SllpSender<'a> {
     header: StreamHeader,
     pubkey: &'a RSAPrivateKey,
     remote_addr: SocketAddr,
     sender: &'a mut Sender<OutgoingMsg>,
 }
-impl<'a> StreamSend<'a> {
+impl<'a> SllpSender<'a> {
     pub fn new(
         header: StreamHeader,
         pubkey: &'a RSAPrivateKey,
@@ -99,8 +195,8 @@ impl<'a> StreamSend<'a> {
     }
 }
 #[async_trait]
-impl<'a> AsyncSend for StreamSend<'a> {
-    type Error = NetworkError;
+impl<'a> AsyncSend for SllpSender<'a> {
+    type SendError = NetworkError;
     async fn send(&mut self, inbuf: &[u8]) -> Result<usize, NetworkError> {
         self.sender
             .send((
@@ -109,6 +205,9 @@ impl<'a> AsyncSend for StreamSend<'a> {
             ))
             .await?;
         Ok(inbuf.len())
+    }
+    fn remote_addr(&self) -> &SocketAddr{
+        &self.remote_addr
     }
 }
 
@@ -130,7 +229,7 @@ pub struct SllpStream {
 }
 #[async_trait]
 impl AsyncSend for SllpStream {
-    type Error = NetworkError;
+    type SendError = NetworkError;
     async fn send(&mut self, inbuf: &[u8]) -> Result<usize, NetworkError> {
         self.query
             .send((
@@ -140,10 +239,13 @@ impl AsyncSend for SllpStream {
             .await?;
         Ok(inbuf.len())
     }
+    fn remote_addr(&self) -> &SocketAddr{
+        &self.remote_addr
+    }
 }
 #[async_trait]
 impl AsyncRecv for SllpStream {
-    type Error = NetworkError;
+    type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let (data, data_len) = match self.query.recv().await {
             Some(result) => result,
@@ -163,30 +265,62 @@ impl AsyncRecv for SllpStream {
         outbuf.extend_from_slice(&dec_data);
         Ok(data_len)
     }
+    fn pubkey(&self) -> &Option<PubKeyComp>{
+        self.header.pubkeycomp()
+    }
+    fn header(&self) -> &Header{
+        &self.header
+    }
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+        self.header.set_pubkey(pubkey);
+    }
 }
 impl SllpStream {
-    pub fn split(&mut self) -> (StreamSend, StreamRecv) {
+    pub fn split(&mut self) -> (SllpSender, SllpReceiver) {
         let (sender, receiver) = self.query.split();
         (
-            StreamSend::new(
+            SllpSender::new(
                 self.header.stream_header(),
                 &self.priv_key,
                 self.remote_addr,
                 sender,
             ),
-            StreamRecv::new(&mut self.header, &self.priv_key, receiver),
+            SllpReceiver::new(&mut self.header, &self.priv_key, receiver),
         )
     }
+    /// splits the stream into sender and receiver consuming the stream object in the process
+    pub fn into_split(self) -> (OwnedSllpSender, OwnedSllpReceiver) {
+        let (sender, receiver) = self.query.into_split();
+        (
+            OwnedSllpSender::new(
+                self.header.stream_header(),
+                RSAPublicKey::from(&self.priv_key),
+                self.remote_addr,
+                sender,
+            ),
+            OwnedSllpReceiver::new(self.header, self.priv_key, receiver),
+        )
+    }
+    /// reverse of into_split
+    pub fn reform(send: OwnedSllpSender, recv: OwnedSllpReceiver) -> Self{
+        let header = recv.header;
+        let priv_key = recv.priv_key;
+        let receiver = recv.receiver;
+        let sender = send.sender;
+        let remote_addr = send.remote_addr;
+        let query = AsyncQuery::create(sender, receiver);
+        Self {header, priv_key, query, remote_addr}
+    }
 }
-impl ArtificeStream for SllpStream {
+impl AsyncDataStream for SllpStream {
     type NetStream = AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>;
-    type Error = NetworkError;
+    type StreamError = NetworkError;
     fn new(
         query: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)>,
         priv_key: RSAPrivateKey,
         peer: &ArtificePeer,
         remote_addr: SocketAddr,
-    ) -> Result<Self, Self::Error> {
+    ) -> Result<Self, NetworkError> {
         let header = Header::new(peer);
         Ok(Self {
             header,
@@ -194,22 +328,6 @@ impl ArtificeStream for SllpStream {
             query,
             remote_addr,
         })
-    }
-    fn peer(&self) -> &ArtificePeer {
-        self.header.peer()
-    }
-    fn socket_addr(&self) -> SocketAddr {
-        self.remote_addr
-    }
-    fn addr(&self) -> IpAddr {
-        self.remote_addr.ip()
-    }
-    fn header(&self) -> &Header {
-        &self.header
-    }
-    fn set_pubkey(mut self, pubkey: PubKeyComp) -> Self {
-        self.header.set_pubkey(pubkey);
-        self
     }
 }
 // ===================================================================================
@@ -258,7 +376,7 @@ impl<'a> SllpIncoming<'a> {
     }
 }
 impl<'a> Stream for SllpIncoming<'a> {
-    type Item = Result<ConnectionRequest<SllpStream>, NetworkError>;
+    type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         let (data, data_len, addr, query) = match self.receiver.poll_recv(ctx) {
             Poll::Ready(data) => match data {
@@ -279,7 +397,7 @@ impl<'a> Stream for SllpIncoming<'a> {
             None,
         );
 
-        Poll::Ready(Some(Ok(ConnectionRequest::new(
+        Poll::Ready(Some(Ok(AsyncRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
                 Ok(stream) => stream,
                 Err(e) => return Poll::Ready(Some(Err(e))),
@@ -288,20 +406,13 @@ impl<'a> Stream for SllpIncoming<'a> {
     }
 }
 impl<'a> Future for SllpIncoming<'a> {
-    type Output = Option<Result<ConnectionRequest<SllpStream>, NetworkError>>;
+    type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         match self.poll_next(ctx) {
             Poll::Ready(val) => Poll::Ready(val),
             Poll::Pending => Poll::Pending,
         }
     }
-}
-/// owned outgoing half of SllpSocket
-#[derive(Debug, Clone)]
-pub struct OwnedSllpOutgoing {
-    streams: Streams,
-    priv_key: RSAPrivateKey,
-    outgoing_sender: Sender<OutgoingMsg>,
 }
 /// outgoing half of SllpSocket allows for opening connections, but not listening for new ones
 #[derive(Debug, Clone)]
@@ -451,7 +562,7 @@ impl SllpSocket {
     }
 }
 impl Stream for SllpSocket {
-    type Item = Result<ConnectionRequest<SllpStream>, NetworkError>;
+    type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
     fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
         let (data, data_len, addr, query) = match self.receiver.poll_recv(ctx) {
             Poll::Ready(data) => match data {
@@ -471,7 +582,7 @@ impl Stream for SllpSocket {
             addr.into(),
             None,
         );
-        Poll::Ready(Some(Ok(ConnectionRequest::new(
+        Poll::Ready(Some(Ok(AsyncRequest::new(
             match SllpStream::new(query, self.priv_key.clone(), &peer, addr) {
                 Ok(stream) => stream,
                 Err(e) => return Poll::Ready(Some(Err(e))),
@@ -480,7 +591,7 @@ impl Stream for SllpSocket {
     }
 }
 impl Future for SllpSocket {
-    type Output = Option<Result<ConnectionRequest<SllpStream>, NetworkError>>;
+    type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
     fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
         match self.poll_next(ctx) {
             Poll::Ready(val) => Poll::Ready(val),
