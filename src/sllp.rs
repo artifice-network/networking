@@ -276,31 +276,6 @@ impl AsyncRecv for SllpStream {
     }
 }
 impl SllpStream {
-    pub fn split(&mut self) -> (SllpSender, SllpReceiver) {
-        let (sender, receiver) = self.query.split();
-        (
-            SllpSender::new(
-                self.header.stream_header(),
-                &self.priv_key,
-                self.remote_addr,
-                sender,
-            ),
-            SllpReceiver::new(&mut self.header, &self.priv_key, receiver),
-        )
-    }
-    /// splits the stream into sender and receiver consuming the stream object in the process
-    pub fn into_split(self) -> (OwnedSllpSender, OwnedSllpReceiver) {
-        let (sender, receiver) = self.query.into_split();
-        (
-            OwnedSllpSender::new(
-                self.header.stream_header(),
-                RSAPublicKey::from(&self.priv_key),
-                self.remote_addr,
-                sender,
-            ),
-            OwnedSllpReceiver::new(self.header, self.priv_key, receiver),
-        )
-    }
     /// reverse of into_split
     pub fn reform(send: OwnedSllpSender, recv: OwnedSllpReceiver) -> Self{
         let header = recv.header;
@@ -329,6 +304,31 @@ impl AsyncDataStream for SllpStream {
             remote_addr,
         })
     }
+    /*fn split(&mut self) -> (SllpSender, SllpReceiver) {
+        let (sender, receiver) = self.query.split();
+        (
+            SllpSender::new(
+                self.header.stream_header(),
+                &self.priv_key,
+                self.remote_addr,
+                sender,
+            ),
+            SllpReceiver::new(&mut self.header, &self.priv_key, receiver),
+        )
+    }*/
+    /*/// splits the stream into sender and receiver consuming the stream object in the process
+    fn into_split(self) -> (OwnedSllpSender, OwnedSllpReceiver) {
+        let (sender, receiver) = self.query.into_split();
+        (
+            OwnedSllpSender::new(
+                self.header.stream_header(),
+                RSAPublicKey::from(&self.priv_key),
+                self.remote_addr,
+                sender,
+            ),
+            OwnedSllpReceiver::new(self.header, self.priv_key, receiver),
+        )
+    }*/
 }
 // ===================================================================================
 //                             Convenience types

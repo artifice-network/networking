@@ -1,4 +1,4 @@
-use networking::{syncronous::SyncHost, test_config};
+use networking::{syncronous::SyncHost, test_config, ConnectionRequest};
 
 fn main() {
     let (peer, config) = test_config();

@@ -332,6 +332,8 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
     fn peer(&self) -> &ArtificePeer{
         self.header().peer()
     }
+    //fn split(&mut self) -> (Box<dyn AsyncSend<SendError = Box<dyn Error>>>, Box<dyn AsyncRecv<RecvError = Box<dyn Error>>>);
+    //fn into_split(self) -> (Box<dyn AsyncSend<SendError = Box<dyn Error>>>, Box<dyn AsyncRecv<RecvError = Box<dyn Error>>>);
 }
 /// shared behavior between SllpSocket, and AsyncHost
 #[async_trait]
@@ -344,6 +346,7 @@ pub trait AsyncNetworkHost: Stream {
 pub struct AsyncRequest<T: AsyncDataStream> {
     stream: T,
 }
+
 impl<T: AsyncDataStream> ConnectionRequest for AsyncRequest<T> {
     type Error = NetworkError;
     type NetStream = T;

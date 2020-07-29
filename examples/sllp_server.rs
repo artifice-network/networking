@@ -1,6 +1,6 @@
 use networking::asyncronous::{AsyncNetworkHost, AsyncRecv};
 use networking::sllp::SllpSocket;
-use networking::test_config;
+use networking::{test_config, ConnectionRequest};
 use std::error::Error;
 
 #[tokio::main]

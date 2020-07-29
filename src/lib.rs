@@ -409,6 +409,7 @@ pub trait ArtificeHost {
     }
     fn stop_broadcasting(&self);
 }
+/// implemented on both async and sync connection requests structs to define how to verify a peer
 pub trait ConnectionRequest {
     type Error: Error;
     type NetStream;

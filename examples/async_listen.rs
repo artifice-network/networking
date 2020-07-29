@@ -1,6 +1,7 @@
 use networking::{
     asyncronous::{AsyncHost, AsyncNetworkHost, AsyncSend},
     test_config,
+    ConnectionRequest,
 };
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
