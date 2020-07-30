@@ -2,12 +2,12 @@ use crate::error::NetworkError;
 use crate::peers::*;
 pub mod encryption;
 use crate::ArtificeHost;
-use crate::PubKeyComp;
 use crate::PeerList;
+use crate::PubKeyComp;
 use crate::{ArtificeConfig, ConnectionRequest, Header};
 pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
-use std::net::{SocketAddr, IpAddr};
+use std::net::{IpAddr, SocketAddr};
 use std::{
     io::{Read, Write},
     net::{TcpListener, TcpStream},
@@ -250,7 +250,7 @@ pub trait SyncDataStream {
     fn pubkeycomp(&self) -> &Option<PubKeyComp> {
         self.header().pubkeycomp()
     }
-    fn peer(&self) -> &ArtificePeer{
+    fn peer(&self) -> &ArtificePeer {
         self.header().peer()
     }
     fn header(&self) -> &Header;
@@ -263,9 +263,9 @@ impl<T: SyncDataStream> ConnectionRequest for SyncRequest<T> {
     type Error = NetworkError;
     type NetStream = T;
     fn new(stream: Self::NetStream) -> Self {
-        Self {stream}
+        Self { stream }
     }
-    fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, NetworkError>{
+    fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, NetworkError> {
         if let Some(key) = list.verify_peer(&self.stream.peer()) {
             Ok(self.stream.set_pubkey(&key))
         } else {

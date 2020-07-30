@@ -55,10 +55,13 @@ pub fn asym_aes_encrypt(
     //output.append(&mut outvec);
     Ok(output)
 }
-pub fn aes_inplace_decrypt(priv_key: &RSAPrivateKey, input: &mut Vec<u8>) -> Result<StreamHeader, NetworkError>{
+pub fn aes_inplace_decrypt(
+    priv_key: &RSAPrivateKey,
+    input: &mut Vec<u8>,
+) -> Result<StreamHeader, NetworkError> {
     println!("function called");
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
-    let mut header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
+    let header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
@@ -66,7 +69,7 @@ pub fn aes_inplace_decrypt(priv_key: &RSAPrivateKey, input: &mut Vec<u8>) -> Res
     //let mut read_data: [u8; 128] = [0; 128];
     while index < data_len {
         let (outbuf, inbuf) = input.split_at_mut(index + 256);
-        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index+128]);
+        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index + 128]);
         index = index + 128;
     }
     input.truncate(input.len() - (rem as usize + 256));

@@ -4,13 +4,13 @@
 use crate::asyncronous::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt,
 };
-use crate::asyncronous::{AsyncNetworkHost, AsyncRecv, AsyncSend, AsyncDataStream};
-use crate::ArtificeConfig;
-use crate::{AsyncQuery, ConnectionRequest};
 use crate::asyncronous::AsyncRequest;
+use crate::asyncronous::{AsyncDataStream, AsyncNetworkHost, AsyncRecv, AsyncSend};
+use crate::ArtificeConfig;
 use crate::PubKeyComp;
 use crate::Query;
 use crate::{error::NetworkError, ArtificePeer, Header, StreamHeader};
+use crate::{AsyncQuery, ConnectionRequest};
 use async_trait::async_trait;
 use futures::{
     future::Future,
@@ -18,7 +18,7 @@ use futures::{
 };
 use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::collections::HashMap;
-use std::net::{SocketAddr};
+use std::net::SocketAddr;
 use std::pin::Pin;
 use std::sync::Arc;
 use tokio::sync::{
@@ -67,13 +67,13 @@ impl AsyncRecv for OwnedSllpReceiver {
         outbuf.extend_from_slice(&dec_data);
         Ok(data_len)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp>{
+    fn pubkey(&self) -> &Option<PubKeyComp> {
         self.header.pubkeycomp()
     }
-    fn header(&self) -> &Header{
+    fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
         self.header.set_pubkey(pubkey);
     }
 }
@@ -121,13 +121,13 @@ impl<'a> AsyncRecv for SllpReceiver<'a> {
         outbuf.extend_from_slice(&dec_data);
         Ok(data_len)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp>{
+    fn pubkey(&self) -> &Option<PubKeyComp> {
         self.header.pubkeycomp()
     }
-    fn header(&self) -> &Header{
+    fn header(&self) -> &Header {
         self.header
     }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
         self.header.set_pubkey(pubkey)
     }
 }
@@ -166,7 +166,7 @@ impl AsyncSend for OwnedSllpSender {
             .await?;
         Ok(inbuf.len())
     }
-    fn remote_addr(&self) -> &SocketAddr{
+    fn remote_addr(&self) -> &SocketAddr {
         &self.remote_addr
     }
 }
@@ -206,7 +206,7 @@ impl<'a> AsyncSend for SllpSender<'a> {
             .await?;
         Ok(inbuf.len())
     }
-    fn remote_addr(&self) -> &SocketAddr{
+    fn remote_addr(&self) -> &SocketAddr {
         &self.remote_addr
     }
 }
@@ -239,7 +239,7 @@ impl AsyncSend for SllpStream {
             .await?;
         Ok(inbuf.len())
     }
-    fn remote_addr(&self) -> &SocketAddr{
+    fn remote_addr(&self) -> &SocketAddr {
         &self.remote_addr
     }
 }
@@ -265,26 +265,31 @@ impl AsyncRecv for SllpStream {
         outbuf.extend_from_slice(&dec_data);
         Ok(data_len)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp>{
+    fn pubkey(&self) -> &Option<PubKeyComp> {
         self.header.pubkeycomp()
     }
-    fn header(&self) -> &Header{
+    fn header(&self) -> &Header {
         &self.header
     }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp){
+    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
         self.header.set_pubkey(pubkey);
     }
 }
 impl SllpStream {
     /// reverse of into_split
-    pub fn reform(send: OwnedSllpSender, recv: OwnedSllpReceiver) -> Self{
+    pub fn reform(send: OwnedSllpSender, recv: OwnedSllpReceiver) -> Self {
         let header = recv.header;
         let priv_key = recv.priv_key;
         let receiver = recv.receiver;
         let sender = send.sender;
         let remote_addr = send.remote_addr;
         let query = AsyncQuery::create(sender, receiver);
-        Self {header, priv_key, query, remote_addr}
+        Self {
+            header,
+            priv_key,
+            query,
+            remote_addr,
+        }
     }
 }
 impl AsyncDataStream for SllpStream {
@@ -368,11 +373,11 @@ pub struct OwnedIncoming {
     priv_key: RSAPrivateKey,
     receiver: Receiver<NewConnection>,
 }
-impl OwnedIncoming{
-    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self{
-        Self {priv_key, receiver}
+impl OwnedIncoming {
+    pub fn new(priv_key: RSAPrivateKey, receiver: Receiver<NewConnection>) -> Self {
+        Self { priv_key, receiver }
     }
-    pub fn incoming(&mut self) -> &mut Self{
+    pub fn incoming(&mut self) -> &mut Self {
         self
     }
 }
@@ -472,8 +477,16 @@ pub struct OwnedOutgoing {
     outgoing_sender: Sender<OutgoingMsg>,
 }
 impl OwnedOutgoing {
-    pub fn new(streams: Streams, priv_key: RSAPrivateKey, outgoing_sender: Sender<OutgoingMsg>) -> Self{
-        Self{streams, priv_key, outgoing_sender}
+    pub fn new(
+        streams: Streams,
+        priv_key: RSAPrivateKey,
+        outgoing_sender: Sender<OutgoingMsg>,
+    ) -> Self {
+        Self {
+            streams,
+            priv_key,
+            outgoing_sender,
+        }
     }
     pub async fn connect(&self, peer: &ArtificePeer) -> SllpStream {
         let (incoming_sender, incoming_receiver) = channel(1);
@@ -633,7 +646,7 @@ impl SllpSocket {
     pub fn into_split(self) -> (OwnedOutgoing, OwnedIncoming) {
         (
             OwnedOutgoing::new(self.streams, self.priv_key.clone(), self.outgoing_sender),
-            OwnedIncoming::new(self.priv_key, self.receiver)
+            OwnedIncoming::new(self.priv_key, self.receiver),
         )
     }
     pub fn incoming(&mut self) -> &mut Self {
