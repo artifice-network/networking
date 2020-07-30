@@ -369,14 +369,19 @@ impl PeerTable {
         path: P,
     ) -> Result<(), NetworkError> {
         let mut file = File::open(path).await?;
-        Ok(file.write_all(&toml::to_string(&self)?.into_bytes()).await?)
+        Ok(file
+            .write_all(&toml::to_string(&self)?.into_bytes())
+            .await?)
     }
     pub async fn save<P: 'static + AsRef<Path> + Send + Sync>(
         &self,
         path: P,
     ) -> Result<(), NetworkError> {
         let table = self.clone();
-        Ok(tokio::spawn(async move { Result::<(), NetworkError>::Ok(table.write_data(path).await?) }).await??)
+        Ok(tokio::spawn(
+            async move { Result::<(), NetworkError>::Ok(table.write_data(path).await?) },
+        )
+        .await??)
     }
     pub fn insert(&mut self, key: String, peer: ArtificePeer) {
         self.data.insert(key, peer);
