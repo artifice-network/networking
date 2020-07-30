@@ -1,14 +1,27 @@
-use crate::{random_string, error::NetworkError, Header};
+use crate::{error::NetworkError, random_string, Header};
 use num_derive::{FromPrimitive, ToPrimitive};
-use num_traits::{ToPrimitive, FromPrimitive};
+use num_traits::{FromPrimitive, ToPrimitive};
 
-#[derive(FromPrimitive, ToPrimitive, Serialize, Deserialize, PartialEq, Eq, PartialOrd, Ord, Hash, Debug, Clone, Copy)]
+#[derive(
+    FromPrimitive,
+    ToPrimitive,
+    Serialize,
+    Deserialize,
+    PartialEq,
+    Eq,
+    PartialOrd,
+    Ord,
+    Hash,
+    Debug,
+    Clone,
+    Copy,
+)]
 pub enum PacketType {
     RawData = 0,
     Administration = 1,
 }
-impl Default for PacketType{
-    fn default() -> Self{
+impl Default for PacketType {
+    fn default() -> Self {
         Self::RawData
     }
 }
@@ -37,10 +50,10 @@ impl StreamHeader {
             remander: 0,
         }
     }
-    pub fn set_packet_type(&mut self, packet_type: PacketType){
+    pub fn set_packet_type(&mut self, packet_type: PacketType) {
         self.packet_type = packet_type;
     }
-    pub fn packet_type(&self) -> PacketType{
+    pub fn packet_type(&self) -> PacketType {
         self.packet_type
     }
     pub fn global_peer_hash(&self) -> &str {
@@ -95,7 +108,7 @@ impl StreamHeader {
             aes_key,
             packet_len,
             remander,
-            packet_type
+            packet_type,
         })
     }
 }

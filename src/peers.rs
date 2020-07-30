@@ -1,11 +1,13 @@
 use crate::encryption::PubKeyComp;
 use crate::{error::NetworkError, random_string};
 use rsa::RSAPublicKey;
+use serde::{de::DeserializeOwned, Serialize};
 use std::collections::HashMap;
 use std::fmt;
 use std::net::ToSocketAddrs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
 use std::path::Path;
+use std::{fmt::Debug, hash::Hash};
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::runtime::{Handle, Runtime};
@@ -334,22 +336,27 @@ impl PeerList for ArtificePeer {
         None
     }
 }
-#[derive(Serialize, Deserialize, Clone)]
-pub struct PeerTable {
-    data: HashMap<String, ArtificePeer>,
+pub trait HashValue: 'static + Serialize + DeserializeOwned + Clone + Send + Sync {}
+pub trait HashKey: 'static + Hash + PartialEq + Eq + Clone + DeserializeOwned + Serialize + Send + Sync {}
+impl<V> HashValue for V where V: 'static + Serialize + DeserializeOwned + Send + Clone + Sync {}
+impl<K> HashKey for K where K: 'static + Hash + PartialEq + Eq + Clone + DeserializeOwned + Serialize + Send + Sync {}
+#[derive(Clone)]
+pub struct HashDatabase<V: HashValue, K: HashKey = String> {
+    data: HashMap<K, V>,
 }
-impl PeerTable {
-    async fn load<P: AsRef<Path>>(path: P) -> Result<Self, NetworkError> {
+impl<V: HashValue, K: HashKey> HashDatabase<V, K>
+{
+    async fn load_all<P: AsRef<Path>>(path: P) -> Result<Self, NetworkError> {
         let mut file = File::open(path).await?;
         let mut invec = Vec::new();
         file.read_to_end(&mut invec).await?;
-        Ok(toml::from_str(&String::from_utf8(invec)?)?)
+        Ok(Self{ data: toml::from_str(&String::from_utf8(invec)?)? })
     }
     /// spawns another thread to handle the workload of reading a potentially massive file into memory
     pub async fn from_file<P: 'static + AsRef<Path> + Send + Sync>(
         path: P,
     ) -> Result<Result<Self, NetworkError>, NetworkError> {
-        Ok(tokio::spawn(async move { Self::load(path).await }).await?)
+        Ok(tokio::spawn(async move { Self::load_all(path).await }).await?)
     }
     /// if the runtime was spawned manually then that runtime can be used in place of creating a new runtime
     pub fn wait_from_file<P: 'static + AsRef<Path> + Send + Sync>(
@@ -370,7 +377,7 @@ impl PeerTable {
     ) -> Result<(), NetworkError> {
         let mut file = File::open(path).await?;
         Ok(file
-            .write_all(&toml::to_string(&self)?.into_bytes())
+            .write_all(&toml::to_string(&self.data)?.into_bytes())
             .await?)
     }
     pub async fn save<P: 'static + AsRef<Path> + Send + Sync>(
@@ -383,18 +390,18 @@ impl PeerTable {
         )
         .await??)
     }
-    pub fn insert(&mut self, key: String, peer: ArtificePeer) {
-        self.data.insert(key, peer);
+    pub fn insert(&mut self, key: K, item: V) {
+        self.data.insert(key, item);
     }
 }
-impl Default for PeerTable {
+impl<T: HashValue> Default for HashDatabase<T> {
     fn default() -> Self {
         Self {
             data: HashMap::new(),
         }
     }
 }
-impl PeerList for PeerTable {
+impl PeerList for HashDatabase<ArtificePeer> {
     fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp> {
         match self.get_peer(peer.global_peer_hash()) {
             Some(peer) => peer.pubkeycomp().as_ref(),

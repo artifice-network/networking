@@ -224,9 +224,8 @@ pub struct AsyncStream {
     priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
-impl AsyncStream{
-    pub fn into_split(self) -> (OwnedStreamSend, OwnedStreamRecv) 
-    {
+impl AsyncStream {
+    pub fn into_split(self) -> (OwnedStreamSend, OwnedStreamRecv) {
         let (read_half, write_half) = self.stream.into_split();
         (
             OwnedStreamSend::new(
@@ -238,11 +237,16 @@ impl AsyncStream{
             OwnedStreamRecv::new(self.header, read_half, self.priv_key),
         )
     }
-    pub fn split(&mut self) -> (StreamSend, StreamRecv){
+    pub fn split(&mut self) -> (StreamSend, StreamRecv) {
         let (reader, writer) = self.stream.split();
         (
-            StreamSend::new( writer, &self.priv_key, self.remote_addr,self.header.stream_header()),
-            StreamRecv::new(reader, &mut self.header, &self.priv_key)
+            StreamSend::new(
+                writer,
+                &self.priv_key,
+                self.remote_addr,
+                self.header.stream_header(),
+            ),
+            StreamRecv::new(reader, &mut self.header, &self.priv_key),
         )
     }
 }
