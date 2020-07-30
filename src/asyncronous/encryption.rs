@@ -111,6 +111,20 @@ pub fn asym_aes_decrypt(
     }
     Ok((output, header))
 }
+pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>){
+    if outbuf.len() == 0 {return}
+    let remander = outbuf[0];
+    let decryptor = AesSafe128DecryptorX8::new(key);
+    let mut index = 0;
+    let mut temp_vec = Vec::with_capacity(128);
+    while index < outbuf.len() {
+        temp_vec.extend_from_slice(&outbuf[index..index+128]);
+        decryptor.decrypt_block_x8(&temp_vec, &mut outbuf[index..128]);
+        temp_vec.clear();
+        index += 128;
+    }
+    outbuf.truncate(outbuf.len() - remander as usize);
+}
 // =============================================================================
 //                              Tests
 // =============================================================================

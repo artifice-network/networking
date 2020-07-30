@@ -13,6 +13,7 @@ use tokio::task::JoinHandle;
 use tokio::sync::RwLock;
 use std::sync::Arc;
 use walkdir::WalkDir;
+use crate::asyncronous::encryption::sym_aes_decrypt;
 
 pub trait HashValue: 'static + Serialize + DeserializeOwned + Clone + Send + Sync {}
 pub trait HashKey:
@@ -76,9 +77,9 @@ impl<'a, V: HashValue, K: HashKey> IntoIterator for &'a mut HashDatabase<V, K> {
 
 #[derive(Clone)]
 pub struct HashDatabase<V: HashValue, K: HashKey = String> {
-    temp_map: Arc<RwLock<HashMap<K, V>>>,
+    temp_map: Arc<RwLock<Vec<(K, V)>>>,
     data: HashMap<K, V>,
-    key: Option<Vec<u8>>,
+    key: Vec<u8>,
     root: PathBuf,
 }
 impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
@@ -86,13 +87,13 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     ///
     /// path: path to the root of the database
     /// key: an option of bytes used to encrypt and decrypt the database
-    pub fn new<P: AsRef<Path>>(path: P, key: Option<Vec<u8>>) -> Self {
+    pub fn new<P: AsRef<Path>>(path: P, key: Vec<u8>) -> Self {
         let root = path.as_ref().to_path_buf();
         Self {
             data: HashMap::new(),
             key,
             root,
-            temp_map: Arc::new(RwLock::new(HashMap::new())),
+            temp_map: Arc::new(RwLock::new(Vec::new())),
         }
     }
     pub fn insert(&mut self, key: K, item: V) {
@@ -111,14 +112,14 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     pub fn from_hashmap<P: AsRef<Path>>(
         data: HashMap<K, V>,
         path: P,
-        key: Option<Vec<u8>>,
+        key: Vec<u8>,
     ) -> Self {
         let root = path.as_ref().to_path_buf();
         Self {
             data,
             root,
             key,
-            temp_map: Arc::new(RwLock::new(HashMap::new())),
+            temp_map: Arc::new(RwLock::new(Vec::new())),
         }
     }
     /// indexes all files in the root
@@ -153,9 +154,9 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         Ok(paths)
     }
     pub async fn load(&self, entries: Vec<K>) -> JoinHandle<Result<usize, NetworkError>>{
-        assert!(entries.len() < 500);
         let root = self.root.clone();
         let temp_map = self.temp_map.clone();
+        let key = self.key.clone();
         tokio::spawn(async move {
             let len = entries.len();
             for entry in entries.into_iter() {
@@ -163,15 +164,17 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
                 let mut file = AsyncFile::open(path).await?;
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer).await?;
+                sym_aes_decrypt(&key, &mut buffer);
                 let value = toml::from_str(&String::from_utf8(buffer)?)?;
-                temp_map.write().await.insert(entry, value);
+                temp_map.write().await.push((entry, value));
             }
             Ok(len)
         })
     }
-    pub async fn sync(&mut self){
+    pub async fn memory_sync(&mut self){
         for (k,v) in self.temp_map.read().await.iter() {
             self.data.insert(k.clone(),v.clone());
         }
+        self.temp_map.write().await.clear();
     }
 }
