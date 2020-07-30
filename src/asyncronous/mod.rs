@@ -38,7 +38,12 @@ pub struct StreamSend<'a> {
     pub_key: &'a RSAPublicKey,
 }
 impl<'a> StreamSend<'a> {
-    pub fn new(writer: WriteHalf<'a>, pub_key: &'a RSAPublicKey, remote_addr: SocketAddr, header: StreamHeader) -> Self {
+    pub fn new(
+        writer: WriteHalf<'a>,
+        pub_key: &'a RSAPublicKey,
+        remote_addr: SocketAddr,
+        header: StreamHeader,
+    ) -> Self {
         Self {
             writer,
             remote_addr,

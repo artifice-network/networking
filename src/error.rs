@@ -6,6 +6,7 @@ use std::sync::mpsc::RecvError as SyncRecvError;
 use std::sync::mpsc::SendError as SyncSendError;
 use tokio::sync::mpsc::error::RecvError as AsyncRecvError;
 use tokio::sync::mpsc::error::SendError as AsyncSendError;
+use tokio::task::JoinError;
 #[derive(Debug)]
 pub enum NetworkError {
     IOError(std::io::Error),
@@ -19,6 +20,9 @@ pub enum NetworkError {
     AsyncRecvError(String),
     SyncSendError(String),
     SyncRecvError(String),
+    TomlDeError(toml::de::Error),
+    TomlSerError(toml::ser::Error),
+    JoinError(JoinError),
 }
 impl fmt::Display for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -34,6 +38,9 @@ impl fmt::Display for NetworkError {
             NetworkError::AsyncRecvError(e) => e.to_string(),
             NetworkError::SyncSendError(e) => e.to_string(),
             NetworkError::SyncRecvError(e) => e.to_string(),
+            NetworkError::TomlDeError(e) => format!("{}", e),
+            NetworkError::TomlSerError(e) => format!("{}", e),
+            NetworkError::JoinError(e) => format!("{}", e),
         };
         write!(f, "{}", msg)
     }
@@ -82,5 +89,20 @@ impl<T> From<SyncSendError<T>> for NetworkError {
 impl From<SyncRecvError> for NetworkError {
     fn from(error: SyncRecvError) -> NetworkError {
         NetworkError::SyncRecvError(format!("{}", error))
+    }
+}
+impl From<toml::de::Error> for NetworkError {
+    fn from(error: toml::de::Error) -> Self {
+        NetworkError::TomlDeError(error)
+    }
+}
+impl From<JoinError> for NetworkError {
+    fn from(error: JoinError) -> Self {
+        NetworkError::JoinError(error)
+    }
+}
+impl From<toml::ser::Error> for NetworkError {
+    fn from(error: toml::ser::Error) -> Self {
+        NetworkError::TomlSerError(error)
     }
 }

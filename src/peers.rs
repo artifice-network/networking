@@ -1,9 +1,14 @@
 use crate::encryption::PubKeyComp;
 use crate::{error::NetworkError, random_string};
 use rsa::RSAPublicKey;
+use std::collections::HashMap;
 use std::fmt;
 use std::net::ToSocketAddrs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::path::Path;
+use tokio::fs::File;
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
+use tokio::runtime::{Handle, Runtime};
 
 /// a serde serializable representation of std::net::SocketAddr
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -315,23 +320,89 @@ impl ArtificePeer {
     }
 }
 impl PeerList for ArtificePeer {
-    fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp> {
+    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp> {
         if self == peer {
-            self.pubkeycomp().clone()
+            self.pubkeycomp().as_ref()
         } else {
             None
         }
     }
-    fn get_peer(&self, key: &str) -> Option<ArtificePeer> {
+    fn get_peer(&self, key: &str) -> Option<&ArtificePeer> {
         if self.global_peer_hash == key {
-            return Some(self.clone());
+            return Some(self);
         }
         None
+    }
+}
+#[derive(Serialize, Deserialize, Clone)]
+pub struct PeerTable {
+    data: HashMap<String, ArtificePeer>,
+}
+impl PeerTable {
+    async fn load<P: AsRef<Path>>(path: P) -> Result<Self, NetworkError> {
+        let mut file = File::open(path).await?;
+        let mut invec = Vec::new();
+        file.read_to_end(&mut invec).await?;
+        Ok(toml::from_str(&String::from_utf8(invec)?)?)
+    }
+    /// spawns another thread to handle the workload of reading a potentially massive file into memory
+    pub async fn from_file<P: 'static + AsRef<Path> + Send + Sync>(
+        path: P,
+    ) -> Result<Result<Self, NetworkError>, NetworkError> {
+        Ok(tokio::spawn(async move { Self::load(path).await }).await?)
+    }
+    /// if the runtime was spawned manually then that runtime can be used in place of creating a new runtime
+    pub fn wait_from_file<P: 'static + AsRef<Path> + Send + Sync>(
+        path: P,
+        handle: Option<Handle>,
+    ) -> Result<Self, NetworkError> {
+        match handle {
+            Some(handle) => handle.block_on(Self::from_file(path))?,
+            None => {
+                let mut runtime = Runtime::new()?;
+                runtime.block_on(Self::from_file(path))?
+            }
+        }
+    }
+    async fn write_data<P: 'static + AsRef<Path> + Send + Sync>(
+        &self,
+        path: P,
+    ) -> Result<(), NetworkError> {
+        let mut file = File::open(path).await?;
+        Ok(file.write_all(&toml::to_string(&self)?.into_bytes()).await?)
+    }
+    pub async fn save<P: 'static + AsRef<Path> + Send + Sync>(
+        &self,
+        path: P,
+    ) -> Result<(), NetworkError> {
+        let table = self.clone();
+        Ok(tokio::spawn(async move { Result::<(), NetworkError>::Ok(table.write_data(path).await?) }).await??)
+    }
+    pub fn insert(&mut self, key: String, peer: ArtificePeer) {
+        self.data.insert(key, peer);
+    }
+}
+impl Default for PeerTable {
+    fn default() -> Self {
+        Self {
+            data: HashMap::new(),
+        }
+    }
+}
+impl PeerList for PeerTable {
+    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp> {
+        match self.get_peer(peer.global_peer_hash()) {
+            Some(peer) => peer.pubkeycomp().as_ref(),
+            None => None,
+        }
+    }
+    fn get_peer(&self, key: &str) -> Option<&ArtificePeer> {
+        self.data.get(&key.to_string())
     }
 }
 /// used in ConnectionRequests verify method, anything that implements this trait
 /// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
-    fn verify_peer(&self, peer: &ArtificePeer) -> Option<PubKeyComp>;
-    fn get_peer(&self, key: &str) -> Option<ArtificePeer>;
+    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp>;
+    fn get_peer(&self, key: &str) -> Option<&ArtificePeer>;
 }
