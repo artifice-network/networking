@@ -144,6 +144,8 @@ use protocol::StreamHeader;
 /// ```
 pub mod sllp;
 
+pub mod database;
+
 pub mod syncronous;
 use crate::encryption::PubKeyComp;
 use crate::error::NetworkError;

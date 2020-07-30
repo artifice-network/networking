@@ -23,6 +23,7 @@ pub enum NetworkError {
     TomlDeError(toml::de::Error),
     TomlSerError(toml::ser::Error),
     JoinError(JoinError),
+    DirError(walkdir::Error),
 }
 impl fmt::Display for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -41,6 +42,7 @@ impl fmt::Display for NetworkError {
             NetworkError::TomlDeError(e) => format!("{}", e),
             NetworkError::TomlSerError(e) => format!("{}", e),
             NetworkError::JoinError(e) => format!("{}", e),
+            NetworkError::DirError(e) => format!("{}", e),
         };
         write!(f, "{}", msg)
     }
@@ -104,5 +106,10 @@ impl From<JoinError> for NetworkError {
 impl From<toml::ser::Error> for NetworkError {
     fn from(error: toml::ser::Error) -> Self {
         NetworkError::TomlSerError(error)
+    }
+}
+impl From<walkdir::Error> for NetworkError {
+    fn from(error: walkdir::Error) -> Self {
+        NetworkError::DirError(error)
     }
 }
