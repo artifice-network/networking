@@ -17,7 +17,7 @@ use crate::asyncronous::encryption::sym_aes_decrypt;
 
 pub trait HashValue: 'static + Serialize + DeserializeOwned + Clone + Send + Sync {}
 pub trait HashKey:
-    'static + Hash + AsRef<Path> + PartialEq + Eq + Clone + DeserializeOwned + Serialize + Send + Sync
+    'static + Hash + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync
 {
 }
 impl<V> HashValue for V where V: 'static + Serialize + DeserializeOwned + Send + Clone + Sync {}
@@ -28,8 +28,6 @@ impl<K> HashKey for K where
         + PartialEq
         + Eq
         + Clone
-        + DeserializeOwned
-        + Serialize
         + Send
         + Sync
 {
@@ -74,7 +72,6 @@ impl<'a, V: HashValue, K: HashKey> IntoIterator for &'a mut HashDatabase<V, K> {
         self.data.iter_mut()
     }
 }
-
 #[derive(Clone)]
 pub struct HashDatabase<V: HashValue, K: HashKey = String> {
     temp_map: Arc<RwLock<Vec<(K, V)>>>,
@@ -153,6 +150,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         }
         Ok(paths)
     }
+    /// spawns a thread to load a large amount of data into memory
     pub async fn load(&self, entries: Vec<K>) -> JoinHandle<Result<usize, NetworkError>>{
         let root = self.root.clone();
         let temp_map = self.temp_map.clone();
@@ -171,6 +169,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
             Ok(len)
         })
     }
+    /// after loading data into memory it needs to be inserted into the HashMap
     pub async fn memory_sync(&mut self){
         for (k,v) in self.temp_map.read().await.iter() {
             self.data.insert(k.clone(),v.clone());
