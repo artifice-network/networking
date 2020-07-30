@@ -87,9 +87,9 @@ use encryption::*;
 pub mod asyncronous;
 /// contains the ArtificePeer struct
 pub mod peers;
-/// used for bi-directional
 
-/// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream
+/// provides access to Sllp (Secure Low Latency Protocol) Socket and Stream, and is intended for high volume low precision operations
+/// such as streaming
 /// note that this module has no syncronous implementation
 /// # Client Example
 ///

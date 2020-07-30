@@ -31,6 +31,7 @@ use tokio::{
 // ================================================================================
 //                                   Async Stream
 // ================================================================================
+/// owned version of StreamSend
 pub struct OwnedStreamSend {
     header: StreamHeader,
     writer: OwnedWriteHalf,
@@ -64,6 +65,7 @@ impl AsyncSend for OwnedStreamSend {
         &self.remote_addr
     }
 }
+/// borrowed half of an async stream that can be used for sending data
 pub struct StreamSend<'a> {
     header: StreamHeader,
     writer: WriteHalf<'a>,
@@ -97,6 +99,7 @@ impl<'a> AsyncSend for StreamSend<'a> {
         &self.remote_addr
     }
 }
+/// owned version of StreamRecv
 pub struct OwnedStreamRecv {
     header: Header,
     reader: OwnedReadHalf,
@@ -154,6 +157,7 @@ impl AsyncRecv for OwnedStreamRecv {
         self.header.set_pubkey(pubkey)
     }
 }
+/// borrowed half of async stream used for receiving data
 pub struct StreamRecv<'a> {
     reader: ReadHalf<'a>,
     header: &'a mut Header,
@@ -437,6 +441,8 @@ impl Stream for AsyncHost {
 // ======================================================================================
 //                            split types for connections
 // ======================================================================================
+/// used for constructing an outgoing tcp connection
+/// an owned implementation doesn't exist, because it would be unneeded code
 pub struct Outgoing<'a> {
     priv_key: &'a RSAPrivateKey,
 }
@@ -466,6 +472,7 @@ impl<'a> Outgoing<'a> {
         )?)
     }
 }
+/// used to listen for incoming connections
 pub struct Incoming<'a> {
     listener: &'a mut TcpListener,
     priv_key: &'a RSAPrivateKey,
@@ -528,12 +535,14 @@ impl<'a> Future for Incoming<'a> {
         Stream::poll_next(self, ctx)
     }
 }
+/// trait for sending data over the network
 #[async_trait]
 pub trait AsyncSend {
     type SendError: Error;
     async fn send(&mut self, outbuf: &[u8]) -> Result<usize, Self::SendError>;
     fn remote_addr(&self) -> &SocketAddr;
 }
+/// trait for receiving network data
 #[async_trait]
 pub trait AsyncRecv {
     type RecvError: Error;
