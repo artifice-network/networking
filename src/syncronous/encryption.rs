@@ -41,7 +41,7 @@ pub fn asym_aes_encrypt(
     header.set_packet_len(data.len());
     // convert header to binary, should only be of length 125, 50 byte global hash, 50 byte peer hash, 16 bytes aes key, 8 bytes data len, 1 byte remander len
     let key = header.to_raw();
-    assert_eq!(key.len(), 125);
+    assert!(key.len() < 246);
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     // use rsa to encrypt the aes key
     let mut enc_key = pub_key.encrypt(&mut rng, padding, &key)?;

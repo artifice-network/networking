@@ -466,6 +466,8 @@ dependencies = [
  "futures",
  "lazy_static",
  "num-bigint-dig",
+ "num-derive",
+ "num-traits",
  "rand 0.7.3",
  "rsa",
  "rust-crypto",
@@ -504,6 +506,17 @@ dependencies = [
  "serde",
  "smallvec",
  "zeroize",
+]
+
+[[package]]
+name = "num-derive"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e0396233fb2d5b0ae3f05ff6aba9a09185f7f6e70f87fb01147d545f85364665"
+dependencies = [
+ "proc-macro2",
+ "quote",
+ "syn",
 ]
 
 [[package]]
