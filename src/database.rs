@@ -8,12 +8,12 @@ use std::path::Path;
 use std::path::PathBuf;
 use std::{fmt::Debug, hash::Hash};
 use tokio::fs::File as AsyncFile;
-use tokio::io::{AsyncReadExt};
+use tokio::io::{AsyncReadExt, AsyncWriteExt};
 use tokio::task::JoinHandle;
-use tokio::sync::RwLock;
+use tokio::sync::{RwLock, mpsc::{Sender, Receiver, channel}};
 use std::sync::Arc;
 use walkdir::WalkDir;
-use crate::asyncronous::encryption::sym_aes_decrypt;
+use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
 
 pub trait HashValue: 'static + Serialize + DeserializeOwned + Clone + Send + Sync {}
 pub trait HashKey:
@@ -78,6 +78,7 @@ pub struct HashDatabase<V: HashValue, K: HashKey = String> {
     data: HashMap<K, V>,
     key: Vec<u8>,
     root: PathBuf,
+    writer: Sender<(K,V)>,
 }
 impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     /// # Arguments
@@ -86,15 +87,28 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     /// key: an option of bytes used to encrypt and decrypt the database
     pub fn new<P: AsRef<Path>>(path: P, key: Vec<u8>) -> Self {
         let root = path.as_ref().to_path_buf();
+        let (sender, mut receiver): (Sender<(K,V)>, Receiver<(K,V)>) = channel(1);
+        let encrypt_key = key.clone();
+        let send_root = root.clone();
+        tokio::spawn(async move {
+            let (key, value) = receiver.recv().await.unwrap();
+            let path = send_root.join(key.as_ref());
+            let mut file = AsyncFile::create(path).await.unwrap();
+            let mut data = toml::to_string(&value).unwrap().into_bytes();
+            sym_aes_encrypt(&encrypt_key, &mut data);
+            file.write_all(&data).await.unwrap();
+        });
         Self {
             data: HashMap::new(),
             key,
             root,
             temp_map: Arc::new(RwLock::new(Vec::new())),
+            writer: sender,
         }
     }
-    pub fn insert(&mut self, key: K, item: V) {
-        self.data.insert(key, item);
+    pub async fn insert(&mut self, key: K, item: V) -> Result<(), NetworkError>{
+        self.data.insert(key.clone(), item.clone());
+        Ok(self.writer.send((key, item)).await?)
     }
     pub fn get(&self, key: &K) -> Option<&V> {
         self.data.get(key)
@@ -112,11 +126,23 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         key: Vec<u8>,
     ) -> Self {
         let root = path.as_ref().to_path_buf();
+        let (sender, mut receiver): (Sender<(K,V)>, Receiver<(K,V)>) = channel(1);
+        let encrypt_key = key.clone();
+        let send_root = root.clone();
+        tokio::spawn(async move {
+            let (key, value) = receiver.recv().await.unwrap();
+            let path = send_root.join(key.as_ref());
+            let mut file = AsyncFile::create(path).await.unwrap();
+            let mut data = toml::to_string(&value).unwrap().into_bytes();
+            sym_aes_encrypt(&encrypt_key, &mut data);
+            file.write_all(&data).await.unwrap();
+        });
         Self {
             data,
             root,
             key,
             temp_map: Arc::new(RwLock::new(Vec::new())),
+            writer: sender,
         }
     }
     /// indexes all files in the root
