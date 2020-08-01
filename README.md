@@ -1,29 +1,33 @@
-# RSA + AES based peer to peer networking
-### Purpose
-the purpose of this network is to provide secured AES asymetric implementation that uses RSA to implement the asymetric nature of this projects encryption. 
+# RSA + AES Based Peer to Peer Networking
 
-## divergence from classic TLS
-this crate aims to prevent man in the middle attacks by encrypting pre-shared keys that are sent in each packet. by doing this, even if a hacker has a public key, they will be unable to feed false information that could cause a crash to either of the peers. in this way each peer can mantain knowledge of the other in both directions, which allows for a more decentralized approach than draditional TLS.
+## Purpose
 
-## Version details
+The purpose of this network is to provide secured AES asymmetric implementation that uses RNA to implement the asymmetric nature of this project's encryption.
 
-this version comes with an SLLP (Secure Low Latency Protocol) implementation. this protocol created for the purpose of this project
-is a semi-connection enabled protocol based on udp.
+## Divergence From Classic TLS
 
-## implementation of SLLP
+This crate aims to prevent man in the middle attacks by encrypting pre-shared keys that are sent in each packet. By doing this, even if a hacker has a public key, they will be unable to feed false information that could cause a crash to either of the peers. in this way each peer can maintain knowledge of the other in both directions, which allows for a more decentralized approach than traditional TLS.
 
-the SLLP implementation in this project, ensures a psudo connection that is private between two peers, by authenticating 
-encrypted pre-shared keys.
+## Version Details
 
-## future implementations
+This version refactors the async side of the crate in order to allows for Async Trait implementations. This is implemented through the AsyncDataStream, AsyncSend, AsyncRecv, and AsyncNetworkHost traits. This version also adds the HashDatabase struct, that is a wrapper around HashMap, for the purposes of writing and reading to disk.
+
+## Implementation of SLLP
+
+The SLLP implementation in this project ensures a pseudo connection that is private between two peers, by authenticating encrypted pre-shared keys. it is done for the sake of transfering large amounts of data quickly when precision is not needed.
+
+## Future Implementations
 <ul>
-<li>proper SLLp error handiling to notifiy a stream when connection has been terminated. </li>
-<li>data order tracking, for SLLP</li>
-<li>in place encrpytion and decryption for increased efficiency.</li>
-<li>data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535 for Tcp implementations.</li>
+<li>proper SLLP error handling to notify a stream when connection has been terminated.</li>
+<li>data order tracking, for SLLP.</li>
+<li>data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535 for TCP implementations. </li>
+<li>Increase in packet types, currently only has raw data, and administrative packet types see protocol.</li>
 </ul>
 
 ## Example usage
+
+
+### Database usage
 
 ```rust
 use networking::database::HashDatabase;
