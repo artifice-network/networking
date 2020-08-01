@@ -1,3 +1,4 @@
+use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
 use crate::error::NetworkError;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::hash_map::{IntoIter, Iter, IterMut};
@@ -6,32 +7,19 @@ use std::fmt;
 use std::iter::IntoIterator;
 use std::path::Path;
 use std::path::PathBuf;
-use std::{fmt::Debug, hash::Hash};
-use tokio::fs::File as AsyncFile;
-use tokio::io::{AsyncReadExt, AsyncWriteExt};
-use tokio::task::JoinHandle;
-use tokio::sync::{RwLock, mpsc::{Sender, Receiver, channel}};
-use std::sync::Arc;
-use walkdir::WalkDir;
-use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
 
-pub trait HashValue: 'static + Serialize + DeserializeOwned + Clone + Send + Sync {}
-pub trait HashKey:
-    'static + Hash + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync
-{
-}
-impl<V> HashValue for V where V: 'static + Serialize + DeserializeOwned + Send + Clone + Sync {}
-impl<K> HashKey for K where
-    K: 'static
-        + AsRef<Path>
-        + Hash
-        + PartialEq
-        + Eq
-        + Clone
-        + Send
-        + Sync
-{
-}
+use std::fs::File;
+use std::io::{Read, Write};
+use std::{fmt::Debug, hash::Hash};
+use walkdir::WalkDir;
+
+/// this is marker trait for any value of HashDatabase
+pub trait HashValue: 'static + Debug + Serialize + DeserializeOwned + Clone + Send + Sync {}
+/// this is a marker trait for any key value of HashDatabase
+pub trait HashKey: 'static + Hash + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync {}
+impl<V> HashValue for V where V: 'static + Debug + Serialize + DeserializeOwned + Send + Clone + Sync
+{}
+impl<K> HashKey for K where K: 'static + AsRef<Path> + Hash + PartialEq + Eq + Clone + Send + Sync {}
 impl<V: HashValue, K: HashKey> Debug for HashDatabase<V, K>
 where
     K: Debug,
@@ -74,44 +62,49 @@ impl<'a, V: HashValue, K: HashKey> IntoIterator for &'a mut HashDatabase<V, K> {
 }
 #[derive(Clone)]
 pub struct HashDatabase<V: HashValue, K: HashKey = String> {
-    temp_map: Arc<RwLock<Vec<(K, V)>>>,
     data: HashMap<K, V>,
     key: Vec<u8>,
     root: PathBuf,
-    writer: Sender<(K,V)>,
 }
 impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     /// # Arguments
     ///
     /// path: path to the root of the database
     /// key: an option of bytes used to encrypt and decrypt the database
-    pub fn new<P: AsRef<Path>>(path: P, key: Vec<u8>) -> Self {
+    pub fn new<P: AsRef<Path>>(path: P, key: Vec<u8>) -> Result<Self, NetworkError> {
         let root = path.as_ref().to_path_buf();
-        let (sender, mut receiver): (Sender<(K,V)>, Receiver<(K,V)>) = channel(1);
-        let encrypt_key = key.clone();
-        let send_root = root.clone();
-        tokio::spawn(async move {
-            let (key, value) = receiver.recv().await.unwrap();
-            let path = send_root.join(key.as_ref());
-            let mut file = AsyncFile::create(path).await.unwrap();
-            let mut data = toml::to_string(&value).unwrap().into_bytes();
-            sym_aes_encrypt(&encrypt_key, &mut data);
-            file.write_all(&data).await.unwrap();
-        });
-        Self {
+        if !root.exists() {
+            std::fs::create_dir(root.clone())?;
+        }
+        Ok(Self {
             data: HashMap::new(),
             key,
             root,
-            temp_map: Arc::new(RwLock::new(Vec::new())),
-            writer: sender,
-        }
+        })
     }
-    pub async fn insert(&mut self, key: K, item: V) -> Result<(), NetworkError>{
+    pub fn insert(&mut self, key: K, item: V) -> Result<(), NetworkError> {
         self.data.insert(key.clone(), item.clone());
-        Ok(self.writer.send((key, item)).await?)
+        let path = self.root.join(key.as_ref());
+        let mut file = File::create(path)?;
+        let mut data = serde_json::to_string(&item)?.into_bytes();
+        sym_aes_encrypt(&self.key, &mut data);
+        Ok(file.write_all(&data)?)
     }
     pub fn get(&self, key: &K) -> Option<&V> {
         self.data.get(key)
+    }
+    pub fn load(&mut self, key: &K) -> Result<(), NetworkError> {
+        let path = self.root.join(key);
+        if !path.exists() {
+            return Err(NetworkError::IOError(std::io::Error::new(std::io::ErrorKind::NotFound, "entry not found")));
+        }
+        let mut file = File::open(path)?;
+        let mut invec = Vec::new();
+        file.read_to_end(&mut invec)?;
+        sym_aes_decrypt(&self.key, &mut invec);
+        let entry = serde_json::from_str(&String::from_utf8(invec)?)?;
+        self.data.insert(key.clone(), entry);
+        Ok(())
     }
     pub fn decompose(self) -> (HashMap<K, V>, PathBuf) {
         (self.data, self.root)
@@ -120,20 +113,16 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     ///
     /// path: path to the root of the database
     /// key: an option of bytes used to encrypt and decrypt the database
-    pub fn from_hashmap<P: AsRef<Path>>(
-        data: HashMap<K, V>,
-        path: P,
-        key: Vec<u8>,
-    ) -> Self {
+    /*pub fn from_hashmap<P: AsRef<Path>>(data: HashMap<K, V>, path: P, key: Vec<u8>) -> Self {
         let root = path.as_ref().to_path_buf();
-        let (sender, mut receiver): (Sender<(K,V)>, Receiver<(K,V)>) = channel(1);
+        let (sender, mut receiver): (Sender<(K, V)>, Receiver<(K, V)>) = channel(1);
         let encrypt_key = key.clone();
         let send_root = root.clone();
         tokio::spawn(async move {
             let (key, value) = receiver.recv().await.unwrap();
             let path = send_root.join(key.as_ref());
             let mut file = AsyncFile::create(path).await.unwrap();
-            let mut data = toml::to_string(&value).unwrap().into_bytes();
+            let mut data = serde_json::to_string(&value).unwrap().into_bytes();
             sym_aes_encrypt(&encrypt_key, &mut data);
             file.write_all(&data).await.unwrap();
         });
@@ -144,7 +133,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
             temp_map: Arc::new(RwLock::new(Vec::new())),
             writer: sender,
         }
-    }
+    }*/
     /// indexes all files in the root
     /// note that this function is highly inefficient, as such it should only be called when absolutely needed
     pub fn index_entries(&self) -> Result<Vec<PathBuf>, NetworkError> {
@@ -176,8 +165,8 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         }
         Ok(paths)
     }
-    /// spawns a thread to load a large amount of data into memory
-    pub async fn load(&self, entries: Vec<K>) -> JoinHandle<Result<usize, NetworkError>>{
+    /*/// spawns a thread to load a large amount of data into memory
+    pub async fn load(&self, entries: Vec<K>) -> JoinHandle<Result<usize, NetworkError>> {
         let root = self.root.clone();
         let temp_map = self.temp_map.clone();
         let key = self.key.clone();
@@ -189,17 +178,18 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
                 let mut buffer = Vec::new();
                 file.read_to_end(&mut buffer).await?;
                 sym_aes_decrypt(&key, &mut buffer);
-                let value = toml::from_str(&String::from_utf8(buffer)?)?;
+                let value = serde_json::from_str(&String::from_utf8(buffer)?)?;
                 temp_map.write().await.push((entry, value));
             }
             Ok(len)
         })
     }
     /// after loading data into memory it needs to be inserted into the HashMap
-    pub async fn memory_sync(&mut self){
-        for (k,v) in self.temp_map.read().await.iter() {
-            self.data.insert(k.clone(),v.clone());
+    pub async fn memory_sync(&mut self) {
+        for (k, v) in self.temp_map.read().await.iter() {
+            println!("inserting: {:?}", v);
+            self.data.insert(k.clone(), v.clone());
         }
         self.temp_map.write().await.clear();
-    }
+    }*/
 }

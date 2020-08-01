@@ -112,38 +112,46 @@ pub fn asym_aes_decrypt(
     }
     Ok((output, header))
 }
-pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>){
-    if outbuf.len() == 0 || key.len() == 0 {return}
+pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>) {
+    if outbuf.len() == 0 || key.len() == 0 {
+        return;
+    }
     let remander = outbuf[outbuf.len() - 1];
     let decryptor = AesSafe128DecryptorX8::new(key);
     let mut index = 0;
     let mut temp_vec = Vec::with_capacity(128);
-    outbuf.truncate(outbuf.len() -1);
+    outbuf.truncate(outbuf.len() - 1);
     println!("entering decrypt loop");
     while index < outbuf.len() {
-        unsafe {temp_vec.set_len(128)}
-        decryptor.decrypt_block_x8(&outbuf[index..index+128], &mut temp_vec[0..128]);
-        std::io::copy(&mut &temp_vec[..], &mut &mut outbuf[index..index+128]).unwrap();
+        unsafe { temp_vec.set_len(128) }
+        decryptor.decrypt_block_x8(&outbuf[index..index + 128], &mut temp_vec[0..128]);
+        std::io::copy(&mut &temp_vec[..], &mut &mut outbuf[index..index + 128]).unwrap();
         temp_vec.clear();
         index += 128;
     }
     outbuf.truncate(outbuf.len() - remander as usize);
 }
 pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
-    if outbuf.len() == 0 || key.len() == 0 {return}
+    if outbuf.len() == 0 || key.len() == 0 {
+        return;
+    }
     let remander = 128 - (outbuf.len() % 128);
     let encryptor = AesSafe128EncryptorX8::new(key);
     let mut index = 0;
     println!("remander: {}", remander);
     let mut temp_vec = Vec::with_capacity(128);
     let mut rem_vec = Vec::with_capacity(remander);
-    unsafe {rem_vec.set_len(remander)};
+    unsafe { rem_vec.set_len(remander) };
     outbuf.extend_from_slice(&rem_vec);
     //assert!(outbuf.len() > 127);
-    println!("outbuf len: {}, capacity: {}", outbuf.len(), outbuf.capacity());
+    println!(
+        "outbuf len: {}, capacity: {}",
+        outbuf.len(),
+        outbuf.capacity()
+    );
     while index < outbuf.len() {
-        temp_vec.extend_from_slice(&outbuf[index..index+128]);
-        encryptor.encrypt_block_x8(&temp_vec, &mut outbuf[index..index+128]);
+        temp_vec.extend_from_slice(&outbuf[index..index + 128]);
+        encryptor.encrypt_block_x8(&temp_vec, &mut outbuf[index..index + 128]);
         temp_vec.clear();
         index += 128;
     }
@@ -154,9 +162,9 @@ pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
 //                              Tests
 // =============================================================================
 #[test]
-fn sym_encrypt_test(){
-    use std::time::SystemTime;
+fn sym_encrypt_test() {
     use crate::random_string;
+    use std::time::SystemTime;
 
     let time = SystemTime::now();
     let instr = random_string(50);

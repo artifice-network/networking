@@ -22,57 +22,25 @@ encrypted pre-shared keys.
 <li>in place encrpytion and decryption for increased efficiency.</li>
 <li>data transfer rates exceeding 65535 bytes, by sending multiple blocks of data broken into packets of length 65535 for Tcp implementations.</li>
 </ul>
+
 ## Example usage
 
-a management crate, or database would be a better means of supplying peers to this network, each host having a databse containg a list of their paired peers.
-## SLLP
-### SLLP Client
- 
 ```rust
-use networking::sllp::SllpSocket;
-use networking::test_config;
-use networking::Layer3Addr;
-use std::error::Error;
-use networking::asyncronous::{AsyncSend, AsyncNetworkHost};
+use networking::database::HashDatabase;
+use networking::ArtificePeer;
+use networking::{random_string, test_config};
 
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let (mut peer, config) = test_config();
-    let socket = SllpSocket::from_host_config(&config).await?;
-    // this needs to be updated to remote peer, because two devices cannot bind to the smae address
-    peer.set_socket_addr((Layer3Addr::newv4(127, 0, 0, 1), 6464).into());
-    let mut stream = socket.connect(&peer).await;
-    loop { stream.send(b"hello world").await.unwrap(); }
-    Ok(())
-}
-```  
-### SLLP Server
-
-```rust
-use networking::sllp::SllpSocket;
-use networking::test_config;
-use std::error::Error;
-use networking::asyncronous::{AsyncRecv, AsyncNetworkHost};
-
-#[tokio::main]
-async fn main() -> Result<(), Box<dyn Error>> {
-    let (peer, config) = test_config();
-    let mut socket = SllpSocket::from_host_config(&config).await?;
-    while let Some(strm) = socket.incoming().await {
-        let mut stream = strm?.verify(&peer)?;
-        tokio::spawn(async move {
-            println!("new connection");
-            loop {
-                let mut invec = Vec::new();
-                stream.recv(&mut invec).await.unwrap();
-                println!(
-                    "got message {}, from server",
-                    String::from_utf8(invec).unwrap()
-                );
-            }
-        });
-    }
-    Ok(())
+fn main(){
+   // generate aes encryption key
+   let key = random_string(16).into_bytes();
+   let (peer, _config) = test_config();
+   
+   let mut database: HashDatabase<ArtificePeer> = HashDatabase::new("./test_db", key.clone()).unwrap();
+   database.insert(peer.global_peer_hash().to_string(), peer.clone()).unwrap();
+   
+   let mut second_database: HashDatabase<ArtificePeer> = HashDatabase::new("./test_db", key).unwrap();
+   second_database.load(&peer.global_peer_hash().to_string()).unwrap();
+   let newpeer = second_database.get(&peer.global_peer_hash().to_string()).unwrap();
 }
 ```
 ## Async
@@ -119,5 +87,5 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
 ```
 ## Sync
 
-for sync examples see <a href="https://docs.rs/networking/0.1.5/networking">docs</a>
+for sync examples and sllp examples see <a href="https://docs.rs/networking/0.1.7/networking">docs</a>
 the camera example is to show a practical application, and test the network by supplying high load

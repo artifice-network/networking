@@ -1,10 +1,10 @@
+use crate::database::HashDatabase;
 use crate::encryption::PubKeyComp;
 use crate::{error::NetworkError, random_string};
 use rsa::RSAPublicKey;
 use std::fmt;
 use std::net::ToSocketAddrs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
-use crate::database::HashDatabase;
 
 /// a serde serializable representation of std::net::SocketAddr
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
