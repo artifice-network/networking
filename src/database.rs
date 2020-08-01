@@ -109,31 +109,6 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     pub fn decompose(self) -> (HashMap<K, V>, PathBuf) {
         (self.data, self.root)
     }
-    /// # Arguments
-    ///
-    /// path: path to the root of the database
-    /// key: an option of bytes used to encrypt and decrypt the database
-    /*pub fn from_hashmap<P: AsRef<Path>>(data: HashMap<K, V>, path: P, key: Vec<u8>) -> Self {
-        let root = path.as_ref().to_path_buf();
-        let (sender, mut receiver): (Sender<(K, V)>, Receiver<(K, V)>) = channel(1);
-        let encrypt_key = key.clone();
-        let send_root = root.clone();
-        tokio::spawn(async move {
-            let (key, value) = receiver.recv().await.unwrap();
-            let path = send_root.join(key.as_ref());
-            let mut file = AsyncFile::create(path).await.unwrap();
-            let mut data = serde_json::to_string(&value).unwrap().into_bytes();
-            sym_aes_encrypt(&encrypt_key, &mut data);
-            file.write_all(&data).await.unwrap();
-        });
-        Self {
-            data,
-            root,
-            key,
-            temp_map: Arc::new(RwLock::new(Vec::new())),
-            writer: sender,
-        }
-    }*/
     /// indexes all files in the root
     /// note that this function is highly inefficient, as such it should only be called when absolutely needed
     pub fn index_entries(&self) -> Result<Vec<PathBuf>, NetworkError> {
@@ -165,31 +140,21 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         }
         Ok(paths)
     }
-    /*/// spawns a thread to load a large amount of data into memory
-    pub async fn load(&self, entries: Vec<K>) -> JoinHandle<Result<usize, NetworkError>> {
-        let root = self.root.clone();
-        let temp_map = self.temp_map.clone();
-        let key = self.key.clone();
-        tokio::spawn(async move {
-            let len = entries.len();
-            for entry in entries.into_iter() {
-                let path = root.join(entry.as_ref());
-                let mut file = AsyncFile::open(path).await?;
-                let mut buffer = Vec::new();
-                file.read_to_end(&mut buffer).await?;
-                sym_aes_decrypt(&key, &mut buffer);
-                let value = serde_json::from_str(&String::from_utf8(buffer)?)?;
-                temp_map.write().await.push((entry, value));
-            }
-            Ok(len)
-        })
+    /// reads entry of a different type from the database
+    /// used for special exceptions, for any large quantity of this type create a different database
+    pub fn read_entry<EV: HashValue>(&self, key: &K) -> Result<EV, NetworkError>{
+        let mut file = File::open(self.root.join(key.as_ref()))?;
+        let mut invec = Vec::new();
+        file.read_to_end(&mut invec)?;
+        sym_aes_decrypt(&self.key, &mut invec);
+        Ok(serde_json::from_str(&String::from_utf8(invec)?)?)
     }
-    /// after loading data into memory it needs to be inserted into the HashMap
-    pub async fn memory_sync(&mut self) {
-        for (k, v) in self.temp_map.read().await.iter() {
-            println!("inserting: {:?}", v);
-            self.data.insert(k.clone(), v.clone());
-        }
-        self.temp_map.write().await.clear();
-    }*/
+    /// writes entry of different type from that of the database
+    /// used for special exceptions, for any large quantity of this type create a different database
+    pub fn write_entry<EV: HashValue>(&self, key: &K, value: &EV) -> Result<(), NetworkError>{
+        let mut file = File::open(self.root.join(key.as_ref()))?;
+        let mut outvec = serde_json::to_string(value)?.into_bytes();
+        sym_aes_encrypt(&self.key,&mut outvec);
+        Ok(file.write_all(&outvec)?)
+    }
 }
