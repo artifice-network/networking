@@ -10,7 +10,7 @@ This crate aims to prevent man in the middle attacks by encrypting pre-shared ke
 
 ## Version Details
 
-This version refactors the async side of the crate in order to allows for Async Trait implementations. This is implemented through the AsyncDataStream, AsyncSend, AsyncRecv, and AsyncNetworkHost traits. This version also adds the HashDatabase struct, that is a wrapper around HashMap, for the purposes of writing and reading to disk.
+This version is the first stabalized version, as such nightly is no longer required to use it. This version doesn't include anything that 0.1.7 doesn't except the ability to generate an in memory tar file of the HashDatabase type.
 
 ## Implementation of SLLP
 
