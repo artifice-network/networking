@@ -14,13 +14,21 @@ use std::{fmt::Debug, hash::Hash};
 use tar::{Archive, Builder};
 use walkdir::WalkDir;
 
+pub trait ToPathBuf {
+    fn to_path_buf(&self) -> PathBuf;
+}
+impl<T> ToPathBuf for T where T: ToString {
+    fn to_path_buf(&self) -> PathBuf{
+        self.to_string().to_path_buf().to_path_buf()
+    }
+}
 /// this is marker trait for any value of HashDatabase
 pub trait HashValue: 'static + Debug + Serialize + DeserializeOwned + Clone + Send + Sync {}
 /// this is a marker trait for any key value of HashDatabase
-pub trait HashKey: 'static + Hash + ToString + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync {}
+pub trait HashKey: 'static + Hash + ToString + ToPathBuf + PartialEq + Eq + Clone + Send + Sync {}
 impl<V> HashValue for V where V: 'static + Debug + Serialize + DeserializeOwned + Send + Clone + Sync
 {}
-impl<K> HashKey for K where K: 'static + ToString + AsRef<Path> + Hash + PartialEq + Eq + Clone + Send + Sync {}
+impl<K> HashKey for K where K: 'static + ToString + ToPathBuf + Hash + PartialEq + Eq + Clone + Send + Sync {}
 impl<V: HashValue, K: HashKey> Debug for HashDatabase<V, K>
 where
     K: Debug,
@@ -85,7 +93,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     }
     pub fn insert(&mut self, key: K, item: V) -> Result<(), NetworkError> {
         self.data.insert(key.clone(), item.clone());
-        let path = self.root.join(key.as_ref());
+        let path = self.root.join(key.to_path_buf());
         let mut file = File::create(path)?;
         let mut data = serde_json::to_string(&item)?.into_bytes();
         sym_aes_encrypt(&self.key, &mut data);
@@ -95,7 +103,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
         self.data.get(key)
     }
     pub fn load(&mut self, key: &K) -> Result<(), NetworkError> {
-        let path = self.root.join(key);
+        let path = self.root.join(key.to_path_buf());
         if !path.exists() {
             return Err(NetworkError::IOError(std::io::Error::new(
                 std::io::ErrorKind::NotFound,
@@ -147,7 +155,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     /// reads entry of a different type from the database
     /// used for special exceptions, for any large quantity of this type create a different database
     pub fn read_entry<EV: HashValue>(&self, key: &K) -> Result<EV, NetworkError> {
-        let mut file = File::open(self.root.join(key.as_ref()))?;
+        let mut file = File::open(self.root.join(key.to_path_buf()))?;
         let mut invec = Vec::new();
         file.read_to_end(&mut invec)?;
         sym_aes_decrypt(&self.key, &mut invec);
@@ -156,7 +164,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     /// writes entry of different type from that of the database
     /// used for special exceptions, for any large quantity of this type create a different database
     pub fn write_entry<EV: HashValue>(&self, key: &K, value: &EV) -> Result<(), NetworkError> {
-        let mut file = File::open(self.root.join(key.as_ref()))?;
+        let mut file = File::open(self.root.join(key.to_path_buf()))?;
         let mut outvec = serde_json::to_string(value)?.into_bytes();
         sym_aes_encrypt(&self.key, &mut outvec);
         Ok(file.write_all(&outvec)?)
