@@ -72,7 +72,7 @@ pub fn aes_inplace_decrypt(
     while index < data_len {
         let (outbuf, inbuf) = input.split_at_mut(index + 256);
         decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index + 128]);
-        index = index + 128;
+        index += 128;
     }
     input.truncate(input.len() - (rem as usize + 256));
     println!("len: {}", input.len());
@@ -113,7 +113,7 @@ pub fn asym_aes_decrypt(
     Ok((output, header))
 }
 pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>) {
-    if outbuf.len() == 0 || key.len() == 0 {
+    if outbuf.is_empty() || key.is_empty() {
         return;
     }
     let remander = outbuf[outbuf.len() - 1];
@@ -132,7 +132,7 @@ pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     outbuf.truncate(outbuf.len() - remander as usize);
 }
 pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
-    if outbuf.len() == 0 || key.len() == 0 {
+    if outbuf.is_empty() || key.is_empty() {
         return;
     }
     let remander = 128 - (outbuf.len() % 128);

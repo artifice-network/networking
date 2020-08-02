@@ -11,15 +11,16 @@ use std::path::PathBuf;
 use std::fs::File;
 use std::io::{Read, Write};
 use std::{fmt::Debug, hash::Hash};
+use tar::{Archive, Builder};
 use walkdir::WalkDir;
 
 /// this is marker trait for any value of HashDatabase
 pub trait HashValue: 'static + Debug + Serialize + DeserializeOwned + Clone + Send + Sync {}
 /// this is a marker trait for any key value of HashDatabase
-pub trait HashKey: 'static + Hash + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync {}
+pub trait HashKey: 'static + Hash + ToString + AsRef<Path> + PartialEq + Eq + Clone + Send + Sync {}
 impl<V> HashValue for V where V: 'static + Debug + Serialize + DeserializeOwned + Send + Clone + Sync
 {}
-impl<K> HashKey for K where K: 'static + AsRef<Path> + Hash + PartialEq + Eq + Clone + Send + Sync {}
+impl<K> HashKey for K where K: 'static + ToString + AsRef<Path> + Hash + PartialEq + Eq + Clone + Send + Sync {}
 impl<V: HashValue, K: HashKey> Debug for HashDatabase<V, K>
 where
     K: Debug,
@@ -96,7 +97,10 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     pub fn load(&mut self, key: &K) -> Result<(), NetworkError> {
         let path = self.root.join(key);
         if !path.exists() {
-            return Err(NetworkError::IOError(std::io::Error::new(std::io::ErrorKind::NotFound, "entry not found")));
+            return Err(NetworkError::IOError(std::io::Error::new(
+                std::io::ErrorKind::NotFound,
+                "entry not found",
+            )));
         }
         let mut file = File::open(path)?;
         let mut invec = Vec::new();
@@ -142,7 +146,7 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     }
     /// reads entry of a different type from the database
     /// used for special exceptions, for any large quantity of this type create a different database
-    pub fn read_entry<EV: HashValue>(&self, key: &K) -> Result<EV, NetworkError>{
+    pub fn read_entry<EV: HashValue>(&self, key: &K) -> Result<EV, NetworkError> {
         let mut file = File::open(self.root.join(key.as_ref()))?;
         let mut invec = Vec::new();
         file.read_to_end(&mut invec)?;
@@ -151,10 +155,34 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     }
     /// writes entry of different type from that of the database
     /// used for special exceptions, for any large quantity of this type create a different database
-    pub fn write_entry<EV: HashValue>(&self, key: &K, value: &EV) -> Result<(), NetworkError>{
+    pub fn write_entry<EV: HashValue>(&self, key: &K, value: &EV) -> Result<(), NetworkError> {
         let mut file = File::open(self.root.join(key.as_ref()))?;
         let mut outvec = serde_json::to_string(value)?.into_bytes();
-        sym_aes_encrypt(&self.key,&mut outvec);
+        sym_aes_encrypt(&self.key, &mut outvec);
         Ok(file.write_all(&outvec)?)
+    }
+    /// converts the database to an in memory tar file
+    pub fn archive(&self) -> Result<Vec<u8>, NetworkError> {
+        let archive = Vec::new();
+        let mut builder = Builder::new(archive);
+        let results: Vec<std::io::Result<()>> = WalkDir::new(self.root.clone())
+            .into_iter()
+            .map(|p| p.unwrap().into_path())
+            .filter(|p| p.is_file())
+            .map(|p| builder.append_path(p))
+            .collect();
+        for result in results.into_iter() {
+            result?
+        }
+        Ok(builder.into_inner()?)
+    }
+    /// takes an in memory tar file and writes it to the disk
+    pub fn dearchive(&self, archive_data: &[u8]) -> std::io::Result<()> {
+        let mut archive = Archive::new(archive_data);
+        for entry in archive.entries()? {
+            let mut entry = entry?;
+            entry.unpack(self.root.join(entry.path()?))?;
+        }
+        Ok(())
     }
 }

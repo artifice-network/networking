@@ -22,7 +22,6 @@ use networking::{syncronous::SyncHost, test_config, ArtificeConfig, ArtificePeer
 use std::{thread, time::Duration};
 
 let (peer, config) = test_config();
-//thread::sleep(Duration::from_millis(200));
 let host = SyncHost::client_only(&config).unwrap();
 let mut stream = host.connect(peer).unwrap();
 println!("connected");
@@ -37,7 +36,6 @@ let string = String::from_utf8(buffer).unwrap();
 println!("got message: {} from server", string);
 ```
 */
-#![feature(ip)]
 #[macro_use]
 extern crate serde_derive;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
@@ -146,14 +144,14 @@ pub mod sllp;
 
 /// provides access to essentially a HashMap that can be written to disk
 /// implements peer list so this struct can be used to verify peers
-/// 
+///
 /// # Example
-/// 
+///
 /// ```
 ///    use networking::database::HashDatabase;
 ///    use networking::ArtificePeer;
 ///    use networking::{random_string, test_config};
-/// 
+///
 ///    let key = random_string(16).into_bytes();
 ///    let (peer, _config) = test_config();
 ///    let mut database: HashDatabase<ArtificePeer> = HashDatabase::new("./test_db", key.clone()).unwrap();

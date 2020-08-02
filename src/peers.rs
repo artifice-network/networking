@@ -123,8 +123,8 @@ impl Layer3Addr {
     pub fn newv4(v1: u8, v2: u8, v3: u8, v4: u8) -> Self {
         Self::V4([v1, v2, v3, v4])
     }
-    pub fn newv6(v1: u16, v2: u16, v3: u16, v4: u16, v5: u16, v6: u16, v7: u16, v8: u16) -> Self {
-        Self::V6([v1, v2, v3, v4, v5, v6, v7, v8])
+    pub fn newv6(addr: [u16;8]) -> Self {
+        Self::V6(addr)
     }
 }
 impl fmt::Display for Layer3Addr {
