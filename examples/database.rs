@@ -6,6 +6,7 @@ fn main() {
     let (peer, _config) = test_config();
     let mut database: HashDatabase<ArtificePeer> =
         HashDatabase::new("./test_db", key.clone()).unwrap();
+    
     database
         .insert(peer.global_peer_hash().to_string(), peer.clone())
         .unwrap();
