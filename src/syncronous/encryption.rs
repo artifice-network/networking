@@ -34,7 +34,6 @@ pub fn asym_aes_encrypt(
     // place padding in the input vector
     data.append(&mut aes_padding);
     assert_eq!(data.len() % 16, 0);
-    let mut index = 0;
     let encryptor = AesSafe128Encryptor::new(header.key());
     header.set_remander(rem);
     // make sure data length is tracted in case multiple packets are sent at the same time
@@ -47,12 +46,11 @@ pub fn asym_aes_encrypt(
     let mut enc_key = pub_key.encrypt(&mut rng, padding, &key)?;
     output.append(&mut enc_key);
     let full_len = input.len() + rem as usize;
-    while index < full_len {
+    for index in (0..full_len).step_by(16) {
         let mut read_data: [u8; 16] = [0; 16];
         // encrypt in sections of 16 bytes
         encryptor.encrypt_block(&data[index..index + 16], &mut read_data[..]);
         output.extend_from_slice(&read_data);
-        index += 16;
     }
     //output.append(&mut outvec);
     Ok(output)
@@ -73,12 +71,10 @@ pub fn asym_aes_decrypt(
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128Decryptor::new(header.key());
-    let mut index = 256;
     let mut read_data: [u8; 16] = [0; 16];
-    while index < data_len + 256 {
+    for index in (256..data_len + 256).step_by(16) {
         decryptor.decrypt_block(&input[index..index + 16], &mut read_data[..]);
         output.extend_from_slice(&read_data);
-        index += 16;
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);

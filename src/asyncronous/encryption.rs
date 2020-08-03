@@ -33,7 +33,6 @@ pub fn asym_aes_encrypt(
     // place padding in the input vector
     data.append(&mut aes_padding);
     assert_eq!(data.len() % 128, 0);
-    let mut index = 0;
     let encryptor = AesSafe128EncryptorX8::new(header.key());
     header.set_remander(rem);
     // make sure data length is tracted in case multiple packets are sent at the same time
@@ -47,14 +46,12 @@ pub fn asym_aes_encrypt(
     let mut enc_key = pub_key.encrypt(&mut rng, padding, &key)?;
     output.append(&mut enc_key);
     let full_len = input.len() + rem as usize;
-    while index < full_len {
+    for index in (0..full_len).step_by(128) {
         let mut read_data: [u8; 128] = [0; 128];
         // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
         encryptor.encrypt_block_x8(&data[index..index + 128], &mut read_data[..]);
         output.extend_from_slice(&read_data);
-        index += 128;
     }
-    //output.append(&mut outvec);
     Ok(output)
 }
 pub fn aes_inplace_decrypt(
@@ -67,12 +64,10 @@ pub fn aes_inplace_decrypt(
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
-    let mut index = 0;
     //let mut read_data: [u8; 128] = [0; 128];
-    while index < data_len {
+    for index in (0..data_len).step_by(128) {
         let (outbuf, inbuf) = input.split_at_mut(index + 256);
         decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index + 128]);
-        index += 128;
     }
     input.truncate(input.len() - (rem as usize + 256));
     println!("len: {}", input.len());
@@ -95,12 +90,10 @@ pub fn asym_aes_decrypt(
     let rem = header.remander();
     let data_len = header.packet_len();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
-    let mut index = 256;
     let mut read_data: [u8; 128] = [0; 128];
-    while index < data_len + 256 {
+    for index in (256..data_len + 256).step_by(128) {
         decryptor.decrypt_block_x8(&input[index..index + 128], &mut read_data[..]);
         output.extend_from_slice(&read_data);
-        index += 128;
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
@@ -118,16 +111,14 @@ pub fn sym_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     }
     let remander = outbuf[outbuf.len() - 1];
     let decryptor = AesSafe128DecryptorX8::new(key);
-    let mut index = 0;
     let mut temp_vec = Vec::with_capacity(128);
     outbuf.truncate(outbuf.len() - 1);
     println!("entering decrypt loop");
-    while index < outbuf.len() {
+    for index in (0..outbuf.len()).step_by(128) {
         unsafe { temp_vec.set_len(128) }
         decryptor.decrypt_block_x8(&outbuf[index..index + 128], &mut temp_vec[0..128]);
         std::io::copy(&mut &temp_vec[..], &mut &mut outbuf[index..index + 128]).unwrap();
         temp_vec.clear();
-        index += 128;
     }
     outbuf.truncate(outbuf.len() - remander as usize);
 }
@@ -137,7 +128,6 @@ pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     }
     let remander = 128 - (outbuf.len() % 128);
     let encryptor = AesSafe128EncryptorX8::new(key);
-    let mut index = 0;
     println!("remander: {}", remander);
     let mut temp_vec = Vec::with_capacity(128);
     let mut rem_vec = Vec::with_capacity(remander);
@@ -149,11 +139,10 @@ pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
         outbuf.len(),
         outbuf.capacity()
     );
-    while index < outbuf.len() {
+    for index in (0..outbuf.len()).step_by(128) {
         temp_vec.extend_from_slice(&outbuf[index..index + 128]);
         encryptor.encrypt_block_x8(&temp_vec, &mut outbuf[index..index + 128]);
         temp_vec.clear();
-        index += 128;
     }
     outbuf.push(remander as u8);
 }
