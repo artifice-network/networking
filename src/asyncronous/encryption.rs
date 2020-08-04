@@ -39,7 +39,6 @@ pub fn asym_aes_encrypt(
     header.set_packet_len(data.len());
     // convert header to binary, should only be of length 126, 50 byte global hash, 50 byte peer hash, 16 bytes aes key, 8 bytes data len, 1 byte remander len
     let key = header.to_raw();
-    println!("header len: {}", key.len());
     assert!(key.len() < 246);
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     // use rsa to encrypt the aes key
@@ -58,7 +57,6 @@ pub fn aes_inplace_decrypt(
     priv_key: &RSAPrivateKey,
     input: &mut Vec<u8>,
 ) -> Result<StreamHeader, NetworkError> {
-    println!("function called");
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     let header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
     let rem = header.remander();
@@ -128,17 +126,10 @@ pub fn sym_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     }
     let remander = 128 - (outbuf.len() % 128);
     let encryptor = AesSafe128EncryptorX8::new(key);
-    println!("remander: {}", remander);
     let mut temp_vec = Vec::with_capacity(128);
     let mut rem_vec = Vec::with_capacity(remander);
     unsafe { rem_vec.set_len(remander) };
     outbuf.extend_from_slice(&rem_vec);
-    //assert!(outbuf.len() > 127);
-    println!(
-        "outbuf len: {}, capacity: {}",
-        outbuf.len(),
-        outbuf.capacity()
-    );
     for index in (0..outbuf.len()).step_by(128) {
         temp_vec.extend_from_slice(&outbuf[index..index + 128]);
         encryptor.encrypt_block_x8(&temp_vec, &mut outbuf[index..index + 128]);
@@ -160,7 +151,6 @@ fn sym_encrypt_test() {
     let key = random_string(16).into_bytes();
     let mut inbuf = instr.clone().into_bytes();
     sym_aes_encrypt(&key, &mut inbuf);
-    println!("encryption complete, decrypting");
     sym_aes_decrypt(&key, &mut inbuf);
     let remstr = instr.into_bytes();
     assert_eq!(remstr.len(), inbuf.len());
@@ -176,8 +166,6 @@ fn asym_encrypt_test() {
     let public_key = RSAPublicKey::from(&private_key);
     let instr = random_string(65535 - 256);
     let indata = instr.clone().into_bytes();
-    println!("meta data len: {}", indata.len());
-    //let mut outvec = Vec::new();
     let mut outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
     aes_inplace_decrypt(&private_key, &mut outvec).unwrap();
     assert_eq!(indata.len(), outvec.len());

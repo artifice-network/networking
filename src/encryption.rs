@@ -2,6 +2,7 @@ use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
+use crate::error::NetworkError;
 
 /*pub async fn async_rsa_encrypt(public_key: RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error>{
 
@@ -11,6 +12,11 @@ use std::fmt;
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BigNum {
     value: Vec<u8>,
+}
+impl BigNum {
+    pub fn to_string_unstable(&self) -> String{
+        unsafe { String::from_utf8_unchecked(self.value.clone()) }
+    }
 }
 impl From<&BigUint> for BigNum {
     fn from(num: &BigUint) -> Self {
