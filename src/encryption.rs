@@ -2,11 +2,6 @@ use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
 use rsa::{PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
-use crate::error::NetworkError;
-
-/*pub async fn async_rsa_encrypt(public_key: RSAPublicKey, data: &[u8]) -> Result<Vec<u8>, rsa::errors::Error>{
-
-}*/
 
 /// the purpose of this structure is to provide an implementation of BigUint, as is used by the rsa crate, that can be serialized for the sake of storing an retriving rsa keys
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -14,7 +9,7 @@ pub struct BigNum {
     value: Vec<u8>,
 }
 impl BigNum {
-    pub fn to_string_unstable(&self) -> String{
+    pub fn to_string_unstable(&self) -> String {
         unsafe { String::from_utf8_unchecked(self.value.clone()) }
     }
 }

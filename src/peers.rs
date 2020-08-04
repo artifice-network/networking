@@ -123,7 +123,7 @@ impl Layer3Addr {
     pub fn newv4(v1: u8, v2: u8, v3: u8, v4: u8) -> Self {
         Self::V4([v1, v2, v3, v4])
     }
-    pub fn newv6(addr: [u16;8]) -> Self {
+    pub fn newv6(addr: [u16; 8]) -> Self {
         Self::V6(addr)
     }
 }

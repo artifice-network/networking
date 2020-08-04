@@ -93,6 +93,14 @@ impl StreamHeader {
         outvec.push(self.packet_type.to_u8().unwrap_or_default());
         outvec
     }
+    pub fn to_raw_padded(&self) -> Vec<u8>{
+        let mut vec = self.to_raw();
+        vec.extend_from_slice(&vec![0,0]);
+        vec
+    }
+    pub fn from_raw_padded(data: &[u8]) -> Result<Self, NetworkError>{
+        Self::from_raw(&data[0..126])
+    }
     /// convert 125 bytes (length of data) to StreamHeader
     pub fn from_raw(data: &[u8]) -> Result<Self, NetworkError> {
         assert_eq!(data.len(), 126);

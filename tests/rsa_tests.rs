@@ -1,6 +1,6 @@
 use networking::test_config;
 #[test]
-fn use_strings(){
+fn use_strings() {
     let (peer, config) = test_config();
     let key = config.host_data().privkeycomp();
     println!("{}", key.n().to_string_unstable());

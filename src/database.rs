@@ -1,4 +1,6 @@
-use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
+use crate::asyncronous::encryption::{
+    database_aes_decrypt as sym_aes_decrypt, database_aes_encrypt as sym_aes_encrypt,
+};
 use crate::error::NetworkError;
 use serde::{de::DeserializeOwned, Serialize};
 use std::collections::hash_map::{IntoIter, Iter, IterMut};
