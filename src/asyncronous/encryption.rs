@@ -79,7 +79,7 @@ pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
     input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
-    assert!(input.len() < (65537));
+    //assert!(input.len() < (65537));
     // create output vector
     let mut output = Vec::new();
     // decrypt the StreamHeader
@@ -95,9 +95,9 @@ pub fn asym_aes_decrypt(
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
-    if (data_len - rem as usize) < newlen {
+    if (newlen + rem as usize + 256) < input.len() {
         let (next_packet, stream_header) =
-            asym_aes_decrypt(priv_key, &input[data_len..input.len()])?;
+            asym_aes_decrypt(priv_key, &input[data_len+256..input.len()])?;
         header = stream_header;
         output.extend_from_slice(&next_packet);
     }
@@ -208,22 +208,20 @@ fn sym_encrypt_test() {
     let mut inbuf = instr.clone().into_bytes();
     let mut header = StreamHeader::with_key(&random_string(50), &instr, key.clone(), inbuf.len());
     let mut output = sym_aes_encrypt(&mut header, &mut inbuf);
-    let second_str = random_string(456);
+    let second_str = random_string(65410);
     let mut second_buf = second_str.clone().into_bytes();
     let mut second_header = StreamHeader::with_key(&random_string(50), &instr, key, second_buf.len());
-    //println!("second_buf: {:?}", second_buf[128..256].to_vec());
     output.extend_from_slice(&sym_aes_encrypt(&mut second_header, &mut second_buf));
-    //println!("second_buf: {:?}", second_buf[256..384].to_vec());
-    println!("inbuf len: {}", inbuf.len());
     let (indexes, inbuf) = sym_aes_decrypt(&header, &output).unwrap();
-    println!("indexes: {:?}", indexes);
     let remstr = instr.into_bytes();
     let remsecstr = second_str.into_bytes();
     assert_eq!(remstr.len(), *indexes.get(0).unwrap());
     assert_eq!(remstr, inbuf[0..*indexes.get(0).unwrap()].to_vec());
-    println!("first asserts passed");
     assert_eq!(remsecstr.len(), *indexes.get(1).unwrap());
     assert_eq!(remsecstr[0..256].to_vec(), inbuf[*indexes.get(0).unwrap()..*indexes.get(0).unwrap()+256].to_vec());
+    let elapsed = time.elapsed().unwrap().as_millis();
+    println!("elapsed: {}", elapsed);
+    assert!(100 > elapsed);
 }
 #[test]
 fn asym_encrypt_test() {
@@ -235,10 +233,14 @@ fn asym_encrypt_test() {
     let public_key = RSAPublicKey::from(&private_key);
     let instr = random_string(65535 - 256);
     let indata = instr.clone().into_bytes();
-    let mut outvec = asym_aes_encrypt(&public_key, stream_header, &indata).unwrap();
-    aes_inplace_decrypt(&private_key, &mut outvec).unwrap();
-    assert_eq!(indata.len(), outvec.len());
-    assert_eq!(indata, outvec);
+    let mut outvec = asym_aes_encrypt(&public_key, stream_header.clone(), &indata).unwrap();
+    let second_string = random_string(353);
+    let secindata = second_string.clone().into_bytes();
+    outvec.extend_from_slice(&asym_aes_encrypt(&public_key, stream_header, &secindata).unwrap());
+    let (outvec, _header) = asym_aes_decrypt(&private_key, &mut outvec).unwrap();
+    //assert_eq!(indata.len(), outvec.len());
+    assert_eq!(indata, outvec[0..indata.len()].to_vec());
+    assert_eq!(second_string.into_bytes(), outvec[indata.len()..outvec.len()].to_vec());
     let elapsed = time.elapsed().unwrap().as_millis();
     println!("{}", elapsed);
     assert!(400 > elapsed);

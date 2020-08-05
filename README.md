@@ -10,8 +10,7 @@ This crate aims to prevent man in the middle attacks by encrypting pre-shared ke
 
 ## Version Details
 
-This version is the first stabalized version, as such nightly is no longer required to use it. This version doesn't include anything that 0.1.7 doesn't except the ability to generate an in memory tar file of the HashDatabase type.
-
+This version is a patch for previous version, it fixes the issue of packets being joined in tcp with respect to packet decryption. it also provides a more efficient means of using aes, in which instead of using a new aes key per packet, one is held for the entires session, increase the encryption speed 3x to 4x.
 ## Implementation of SLLP
 
 The SLLP implementation in this project ensures a pseudo connection that is private between two peers, by authenticating encrypted pre-shared keys. it is done for the sake of transfering large amounts of data quickly when precision is not needed.
