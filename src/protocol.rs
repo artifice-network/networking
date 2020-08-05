@@ -41,6 +41,9 @@ pub struct StreamHeader {
 impl StreamHeader {
     pub fn new(global_hash: &str, peer_hash: &str, packet_len: usize) -> Self {
         let aes_key = random_string(16).into_bytes();
+        Self::with_key(global_hash, peer_hash, aes_key, packet_len)
+    }
+    pub fn with_key(global_hash: &str, peer_hash: &str, aes_key: Vec<u8>, packet_len: usize) -> Self{
         Self {
             global_hash: global_hash.to_string(),
             peer_hash: peer_hash.to_string(),
@@ -93,12 +96,12 @@ impl StreamHeader {
         outvec.push(self.packet_type.to_u8().unwrap_or_default());
         outvec
     }
-    pub fn to_raw_padded(&self) -> Vec<u8>{
+    pub fn to_raw_padded(&self) -> Vec<u8> {
         let mut vec = self.to_raw();
-        vec.extend_from_slice(&vec![0,0]);
+        vec.extend_from_slice(&vec![0, 0]);
         vec
     }
-    pub fn from_raw_padded(data: &[u8]) -> Result<Self, NetworkError>{
+    pub fn from_raw_padded(data: &[u8]) -> Result<Self, NetworkError> {
         Self::from_raw(&data[0..126])
     }
     /// convert 125 bytes (length of data) to StreamHeader
