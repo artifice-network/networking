@@ -14,10 +14,9 @@ async fn main() -> Result<(), Box<dyn Error>> {
             println!("new connection");
             loop {
                 let mut invec = Vec::new();
-                println!("in loop aobut to recv");
                 stream.recv(&mut invec).await.unwrap();
                 println!(
-                    "got message {}, from client",
+                    "got message {}",
                     String::from_utf8(invec).unwrap()
                 );
             }

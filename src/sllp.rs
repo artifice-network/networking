@@ -582,11 +582,9 @@ impl SllpSocket {
                 let mut buffer: [u8; 65535] = [0; 65535];
                 match recv_half.recv_from(&mut buffer).await {
                     Ok((data_len, addr)) => {
-                        println!("got message form: {}", addr);
                         let mut senders = streams.lock().await;
                         match senders.get_mut(&addr) {
                             Some(sender) => {
-                                println!("got message from server");
                                 sender
                                     .send((buffer[0..data_len].to_vec(), data_len))
                                     .await
