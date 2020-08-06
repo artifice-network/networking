@@ -26,7 +26,7 @@ use tokio::{
     net::{TcpListener, TcpStream, UdpSocket},
     stream::Stream,
     sync::{
-        mpsc::{channel, Receiver, Sender, error::TryRecvError},
+        mpsc::{channel, Receiver, Sender},
         Mutex, MutexGuard,
     },
 };
@@ -89,7 +89,7 @@ fn incoming_conn(
 async fn recv_incoming(
     listener: &mut TcpListener,
     in_priv_key: &RSAPrivateKey,
-    stream_sender: &mut Sender<(SocketAddr, Sender<IncomingMsg>)>,
+    in_sender: &Streams,
     outgoing_sender: &Sender<OutgoingMsg>,
 ) -> NewConnection {
     let mut buffer: [u8; 65535] = [0; 65535];
@@ -107,7 +107,7 @@ async fn recv_incoming(
     let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
         AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
     // store incoming sender
-    stream_sender.send((addr, incoming_sender)).await?;
+    in_sender.lock().await.insert(addr, incoming_sender);
     println!("appended sender");
     Ok((header, addr, foward))
 }
@@ -572,10 +572,6 @@ impl SllpSocket {
             Sender<OutgoingMsg>,
             Receiver<(Vec<u8>, SocketAddr)>,
         ) = channel(200);
-        let (mut stream_sender, mut stream_receiver): (
-            Sender<(SocketAddr, Sender<IncomingMsg>)>,
-            Receiver<(SocketAddr, Sender<IncomingMsg>)>,
-        ) = channel(1);
         let senders: Streams = Streams::default();
         let (mut recv_half, mut send_half) = socket.split();
         // spawn incoming
@@ -598,19 +594,6 @@ impl SllpSocket {
                             }
                             None => (),
                         }
-                        match stream_receiver.try_recv() {
-                            Ok((new_addr, new_sender)) => {
-                                println!("inserting sender");
-                                senders.insert(new_addr, new_sender);
-                                println!("sender inserted");
-                            },
-                            Err(e) => {
-                                match e {
-                                    TryRecvError::Empty => continue,
-                                    TryRecvError::Closed => panic!("unable to get new messages"),
-                                }
-                            },
-                        }
                     }
                     Err(e) => panic!("error: {}", e),
                 }
@@ -627,6 +610,7 @@ impl SllpSocket {
             // spawn tcp listener to wait for incoming connections
             let mut listener = TcpListener::bind("0.0.0.0:6432").await?;
             let in_priv_key = priv_key.clone();
+            let in_senders = senders.clone();
             // checks for new incoming connections
             // note connections must be initiated by using a tcp stream
             tokio::spawn(async move {
@@ -636,7 +620,7 @@ impl SllpSocket {
                             recv_incoming(
                                 &mut listener,
                                 &in_priv_key,
-                                &mut stream_sender,
+                                &in_senders,
                                 &outgoing_sender,
                             )
                             .await,
