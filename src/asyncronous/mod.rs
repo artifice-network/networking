@@ -3,8 +3,7 @@
 // ===================================================================
 use crate::ArtificeConfig;
 use crate::PeerList;
-use crate::PubKeyComp;
-use crate::{error::NetworkError, ArtificePeer, Header, StreamHeader};
+use crate::{error::NetworkError, ArtificePeer, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
 use async_trait::async_trait;
 use futures::{
@@ -13,7 +12,10 @@ use futures::{
 };
 use std::error::Error;
 pub mod encryption;
-use encryption::{asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt};
+use encryption::{
+    asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt, sym_aes_decrypt,
+    sym_aes_encrypt,
+};
 use rsa::{RSAPrivateKey, RSAPublicKey};
 
 use std::net::{IpAddr, SocketAddr};
@@ -35,20 +37,13 @@ use tokio::{
 pub struct OwnedStreamSend {
     header: StreamHeader,
     writer: OwnedWriteHalf,
-    pub_key: RSAPublicKey,
     remote_addr: SocketAddr,
 }
 impl OwnedStreamSend {
-    pub fn new(
-        header: StreamHeader,
-        writer: OwnedWriteHalf,
-        pub_key: RSAPublicKey,
-        remote_addr: SocketAddr,
-    ) -> Self {
+    pub fn new(header: StreamHeader, writer: OwnedWriteHalf, remote_addr: SocketAddr) -> Self {
         Self {
             header,
             writer,
-            pub_key,
             remote_addr,
         }
     }
@@ -58,7 +53,7 @@ impl AsyncSend for OwnedStreamSend {
     type SendError = NetworkError;
     /// send data to the peer
     async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let enc_data = aes_encrypt(&self.pub_key, self.header.clone(), &buffer)?;
+        let enc_data = sym_aes_encrypt(&self.header, &buffer);
         Ok(self.writer.write(&enc_data).await?)
     }
     fn remote_addr(&self) -> &SocketAddr {
@@ -67,23 +62,16 @@ impl AsyncSend for OwnedStreamSend {
 }
 /// borrowed half of an async stream that can be used for sending data
 pub struct StreamSend<'a> {
-    header: StreamHeader,
+    header: &'a StreamHeader,
     writer: WriteHalf<'a>,
     remote_addr: SocketAddr,
-    pub_key: &'a RSAPrivateKey,
 }
 impl<'a> StreamSend<'a> {
-    pub fn new(
-        writer: WriteHalf<'a>,
-        pub_key: &'a RSAPrivateKey,
-        remote_addr: SocketAddr,
-        header: StreamHeader,
-    ) -> Self {
+    pub fn new(writer: WriteHalf<'a>, remote_addr: SocketAddr, header: &'a StreamHeader) -> Self {
         Self {
             writer,
             remote_addr,
             header,
-            pub_key,
         }
     }
 }
@@ -92,7 +80,7 @@ impl<'a> AsyncSend for StreamSend<'a> {
     type SendError = NetworkError;
     /// send data to the peer
     async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let enc_data = aes_encrypt(&self.pub_key, self.header.clone(), &buffer)?;
+        let enc_data = sym_aes_encrypt(&self.header, &buffer);
         Ok(self.writer.write(&enc_data).await?)
     }
     fn remote_addr(&self) -> &SocketAddr {
@@ -101,30 +89,25 @@ impl<'a> AsyncSend for StreamSend<'a> {
 }
 /// owned version of StreamRecv
 pub struct OwnedStreamRecv {
-    header: Header,
+    header: StreamHeader,
     reader: OwnedReadHalf,
-    priv_key: RSAPrivateKey,
 }
 impl OwnedStreamRecv {
-    pub fn new(header: Header, reader: OwnedReadHalf, priv_key: RSAPrivateKey) -> Self {
-        Self {
-            header,
-            reader,
-            priv_key,
-        }
+    pub fn new(header: StreamHeader, reader: OwnedReadHalf) -> Self {
+        Self { header, reader }
     }
 }
 #[async_trait]
 impl AsyncRecv for OwnedStreamRecv {
     type RecvError = NetworkError;
-    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
+    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut data_len = self.reader.read(&mut buffer).await?;
         while data_len == 0 {
             data_len = self.reader.read(&mut buffer).await?;
         }
-        let (dec_data, mut header) = aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
-        if header != self.header {
+        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
+        if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
             ));
@@ -138,51 +121,40 @@ impl AsyncRecv for OwnedStreamRecv {
         //hadle further packetsheader_len +
         while data_len < header.packet_len() {
             let temp_len = self.reader.read(&mut buffer).await?;
-            let (dec_buffer, stream_header) =
-                aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            let (dec_buffer, stream_header, _indexes) =
+                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
             outbuf.extend_from_slice(&dec_buffer);
         }
-        Ok(outbuf.len())
+        Ok(indexes)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp> {
-        self.header.pubkeycomp()
-    }
-    fn header(&self) -> &Header {
+    fn header(&self) -> &StreamHeader {
         &self.header
-    }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
-        self.header.set_pubkey(pubkey)
     }
 }
 /// borrowed half of async stream used for receiving data
 pub struct StreamRecv<'a> {
     reader: ReadHalf<'a>,
-    header: &'a mut Header,
-    priv_key: &'a RSAPrivateKey,
+    header: &'a StreamHeader,
 }
 impl<'a> StreamRecv<'a> {
-    pub fn new(reader: ReadHalf<'a>, header: &'a mut Header, priv_key: &'a RSAPrivateKey) -> Self {
-        Self {
-            reader,
-            header,
-            priv_key,
-        }
+    pub fn new(reader: ReadHalf<'a>, header: &'a StreamHeader) -> Self {
+        Self { reader, header }
     }
 }
 #[async_trait]
 impl<'a> AsyncRecv for StreamRecv<'a> {
     type RecvError = NetworkError;
-    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
+    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut data_len = self.reader.read(&mut buffer).await?;
         while data_len == 0 {
             data_len = self.reader.read(&mut buffer).await?;
         }
-        let (dec_data, mut header) = aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
-        if header != *self.header {
+        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
+        if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
             ));
@@ -196,57 +168,40 @@ impl<'a> AsyncRecv for StreamRecv<'a> {
         //hadle further packetsheader_len +
         while data_len < header.packet_len() {
             let temp_len = self.reader.read(&mut buffer).await?;
-            let (dec_buffer, stream_header) =
-                aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            let (dec_buffer, stream_header, _indexes) =
+                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
             outbuf.extend_from_slice(&dec_buffer);
         }
-        Ok(outbuf.len())
+        Ok(indexes)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp> {
-        self.header.pubkeycomp()
-    }
-    fn header(&self) -> &Header {
+    fn header(&self) -> &StreamHeader {
         &self.header
-    }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
-        self.header.set_pubkey(pubkey)
     }
 }
 
 /// networking implementation that uses TCP to send information over the network
 #[derive(Debug)]
 pub struct AsyncStream {
-    header: Header,
+    header: StreamHeader,
     stream: TcpStream,
-    priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
 impl AsyncStream {
     pub fn into_split(self) -> (OwnedStreamSend, OwnedStreamRecv) {
         let (read_half, write_half) = self.stream.into_split();
         (
-            OwnedStreamSend::new(
-                self.header.stream_header(),
-                write_half,
-                RSAPublicKey::from(&self.priv_key),
-                self.remote_addr,
-            ),
-            OwnedStreamRecv::new(self.header, read_half, self.priv_key),
+            OwnedStreamSend::new(self.header.clone(), write_half, self.remote_addr),
+            OwnedStreamRecv::new(self.header, read_half),
         )
     }
     pub fn split(&mut self) -> (StreamSend, StreamRecv) {
         let (reader, writer) = self.stream.split();
         (
-            StreamSend::new(
-                writer,
-                &self.priv_key,
-                self.remote_addr,
-                self.header.stream_header(),
-            ),
-            StreamRecv::new(reader, &mut self.header, &self.priv_key),
+            StreamSend::new(writer, self.remote_addr, &self.header),
+            StreamRecv::new(reader, &self.header),
         )
     }
 }
@@ -255,15 +210,12 @@ impl AsyncDataStream for AsyncStream {
     type StreamError = NetworkError;
     fn new(
         stream: Self::NetStream,
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
+        header: StreamHeader,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::StreamError> {
-        let header = Header::new(peer);
         Ok(Self {
             header,
             stream,
-            priv_key,
             remote_addr,
         })
     }
@@ -274,14 +226,14 @@ impl AsyncDataStream for AsyncStream {
 #[async_trait]
 impl AsyncRecv for AsyncStream {
     type RecvError = NetworkError;
-    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
+    async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut data_len = self.stream.read(&mut buffer).await?;
         while data_len == 0 {
             data_len = self.stream.read(&mut buffer).await?;
         }
-        let (dec_data, mut header) = aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
-        if header != self.header {
+        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
+        if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
             ));
@@ -295,23 +247,17 @@ impl AsyncRecv for AsyncStream {
         //hadle further packetsheader_len +
         while data_len < header.packet_len() {
             let temp_len = self.stream.read(&mut buffer).await?;
-            let (dec_buffer, stream_header) =
-                aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            let (dec_buffer, stream_header, _indexes) =
+                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
             outbuf.extend_from_slice(&dec_buffer);
         }
-        Ok(outbuf.len())
+        Ok(indexes)
     }
-    fn pubkey(&self) -> &Option<PubKeyComp> {
-        self.header.pubkeycomp()
-    }
-    fn header(&self) -> &Header {
+    fn header(&self) -> &StreamHeader {
         &self.header
-    }
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
-        self.header.set_pubkey(pubkey)
     }
 }
 #[async_trait]
@@ -319,13 +265,7 @@ impl AsyncSend for AsyncStream {
     type SendError = NetworkError;
     /// send data to the peer
     async fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let key = match self.pubkey() {
-            Some(pubkey) => pubkey,
-            None => return Err(NetworkError::UnSet("public key not set".to_string())),
-        };
-        let public_key = RSAPublicKey::new(key.n().into(), key.e().into())?;
-        let stream_header = self.header.stream_header();
-        let enc_data = aes_encrypt(&public_key, stream_header, &buffer)?;
+        let enc_data = sym_aes_encrypt(&self.header, &buffer);
         Ok(self.stream.write(&enc_data).await?)
     }
     fn remote_addr(&self) -> &SocketAddr {
@@ -357,12 +297,7 @@ impl AsyncNetworkHost for AsyncHost {
         let data = config.host_data();
         let priv_key_comp = data.privkeycomp();
         let socket_addr: SocketAddr = config.socket_addr().into();
-        let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into(),
-            priv_key_comp.e().into(),
-            priv_key_comp.d().into(),
-            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
-        );
+        let priv_key = priv_key_comp.into();
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)
         } else {
@@ -384,12 +319,7 @@ impl AsyncHost {
         let data = config.host_data();
         let priv_key_comp = data.privkeycomp();
         let socket_addr: SocketAddr = config.socket_addr().into();
-        let priv_key = RSAPrivateKey::from_components(
-            priv_key_comp.n().into(),
-            priv_key_comp.e().into(),
-            priv_key_comp.d().into(),
-            priv_key_comp.primes().iter().map(|v| v.into()).collect(),
-        );
+        let priv_key = priv_key_comp.into();
         let stop_broadcast = if config.broadcast() {
             Some(Self::begin_broadcast(socket_addr)?)
         } else {
@@ -413,15 +343,10 @@ impl AsyncHost {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
-        let enc_data = aes_encrypt(&public_key, stream_header, &data)?;
+        let enc_data = aes_encrypt(&public_key, stream_header.clone(), &data)?;
         stream.write(&enc_data).await?;
         let addr = peer.socket_addr();
-        Ok(AsyncStream::new(
-            stream,
-            self.priv_key.clone(),
-            &peer,
-            addr,
-        )?)
+        Ok(AsyncStream::new(stream, stream_header, addr)?)
     }
     pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
         match &mut self.listener {
@@ -447,12 +372,16 @@ impl Stream for AsyncHost {
 // ======================================================================================
 /// used for constructing an outgoing tcp connection
 /// an owned implementation doesn't exist, because it would be unneeded code
-pub struct Outgoing<'a> {
-    priv_key: &'a RSAPrivateKey,
+pub struct Outgoing {}
+
+impl Default for Outgoing {
+    fn default() -> Self {
+        Self {}
+    }
 }
-impl<'a> Outgoing<'a> {
-    pub fn new(priv_key: &'a RSAPrivateKey) -> Self {
-        Self { priv_key }
+impl Outgoing {
+    pub fn new() -> Self {
+        Self::default()
     }
     pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
@@ -465,15 +394,10 @@ impl<'a> Outgoing<'a> {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer)?.into_bytes();
         let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
-        let enc_data = aes_encrypt(&public_key, stream_header, &data)?;
+        let enc_data = aes_encrypt(&public_key, stream_header.clone(), &data)?;
         stream.write(&enc_data).await?;
         let addr = peer.socket_addr();
-        Ok(AsyncStream::new(
-            stream,
-            self.priv_key.clone(),
-            &peer,
-            addr,
-        )?)
+        Ok(AsyncStream::new(stream, stream_header, addr)?)
     }
 }
 /// used to listen for incoming connections
@@ -506,21 +430,14 @@ impl<'a> Stream for Incoming<'a> {
                                 Poll::Pending => continue,
                             };
                         }
-                        let (dec_data, _) = match aes_decrypt(&self.priv_key, &buffer[0..data_len])
-                        {
-                            Ok(data_len) => data_len,
-                            Err(e) => return Poll::Ready(Some(Err(e))),
-                        };
-                        let peer = match serde_json::from_str(&match String::from_utf8(dec_data) {
-                            Ok(data_len) => data_len,
-                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-                        }) {
-                            Ok(peer) => peer,
-                            Err(e) => return Poll::Ready(Some(Err(NetworkError::from(e)))),
-                        };
+                        let (_dec_data, header) =
+                            match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
+                                Ok(data_len) => data_len,
+                                Err(e) => return Poll::Ready(Some(Err(e))),
+                            };
                         //Some(Ok(SyncStream::new(stream, self.priv_key.clone(), peer)))
                         Poll::Ready(Some(Ok(AsyncRequest::new(
-                            match AsyncStream::new(strm, self.priv_key.clone(), &peer, addr) {
+                            match AsyncStream::new(strm, header, addr) {
                                 Ok(stream) => stream,
                                 Err(e) => return Poll::Ready(Some(Err(e))),
                             },
@@ -550,10 +467,8 @@ pub trait AsyncSend {
 #[async_trait]
 pub trait AsyncRecv {
     type RecvError: Error;
-    async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<usize, Self::RecvError>;
-    fn pubkey(&self) -> &Option<PubKeyComp>;
-    fn header(&self) -> &Header;
-    fn set_pubkey(&mut self, pubkey: &PubKeyComp);
+    async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<Vec<usize>, Self::RecvError>;
+    fn header(&self) -> &StreamHeader;
 }
 /// currently only used as a marker, will implement more functionality in the future
 #[async_trait]
@@ -562,8 +477,7 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
     type StreamError: Error;
     fn new(
         stream: Self::NetStream,
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
+        header: StreamHeader,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::StreamError>
     where
@@ -573,9 +487,6 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
     }
     fn remote_ip(&self) -> IpAddr {
         self.remote_addr().ip()
-    }
-    fn peer(&self) -> &ArtificePeer {
-        self.header().peer()
     }
 }
 /// shared behavior between SllpSocket, and AsyncHost
@@ -596,9 +507,14 @@ impl<T: AsyncDataStream> ConnectionRequest for AsyncRequest<T> {
     fn new(stream: Self::NetStream) -> Self {
         Self { stream }
     }
-    fn verify<L: PeerList>(mut self, list: &L) -> Result<Self::NetStream, Self::Error> {
-        if let Some(key) = list.verify_peer(&self.stream.peer()) {
-            self.stream.set_pubkey(&key);
+    fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, Self::Error> {
+        let peer = ArtificePeer::new(
+            self.stream.header().global_peer_hash(),
+            self.stream.header().peer_hash(),
+            self.stream.remote_addr().into(),
+            None,
+        );
+        if list.verify_peer(&peer).is_some() {
             Ok(self.stream)
         } else {
             Err(NetworkError::ConnectionDenied(

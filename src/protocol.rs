@@ -43,7 +43,12 @@ impl StreamHeader {
         let aes_key = random_string(16).into_bytes();
         Self::with_key(global_hash, peer_hash, aes_key, packet_len)
     }
-    pub fn with_key(global_hash: &str, peer_hash: &str, aes_key: Vec<u8>, packet_len: usize) -> Self{
+    pub fn with_key(
+        global_hash: &str,
+        peer_hash: &str,
+        aes_key: Vec<u8>,
+        packet_len: usize,
+    ) -> Self {
         Self {
             global_hash: global_hash.to_string(),
             peer_hash: peer_hash.to_string(),
@@ -72,7 +77,7 @@ impl StreamHeader {
         self.packet_len
     }
     pub fn data_len(&self) -> usize {
-        self.packet_len - (self.remander as usize)
+        self.packet_len
     }
     pub fn set_packet_len(&mut self, packet_len: usize) {
         self.packet_len = packet_len;
@@ -87,6 +92,8 @@ impl StreamHeader {
     }
     /// used in place of serde_json::to_string(), because serde_json generates un-needed data
     pub fn to_raw(&self) -> Vec<u8> {
+        assert_eq!(self.global_hash.len(), 50);
+        assert_eq!(self.peer_hash.len(), 50);
         let mut outvec = Vec::with_capacity(125);
         outvec.extend_from_slice(&self.global_hash.as_bytes());
         outvec.extend_from_slice(&self.peer_hash.as_bytes());

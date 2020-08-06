@@ -9,7 +9,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
     let mut stream = host.connect(peer).await.unwrap();
     let mut buffer = Vec::new();
     println!(
-        "got {} bytes from server",
+        "got {:?} bytes from server",
         stream.recv(&mut buffer).await.unwrap()
     );
     let string = String::from_utf8(buffer).unwrap();

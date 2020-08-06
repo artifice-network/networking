@@ -1,9 +1,11 @@
 use crate::error::NetworkError;
 use crate::peers::*;
 pub mod encryption;
+use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
+use crate::protocol::StreamHeader;
+use crate::random_string;
 use crate::ArtificeHost;
 use crate::PeerList;
-use crate::PubKeyComp;
 use crate::{ArtificeConfig, ConnectionRequest, Header};
 pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
@@ -16,9 +18,8 @@ use std::{
 /// the TcpStream version of the artifice network, implements encryption automatically in its implementation of std::io::Write, and std::io::Read
 #[derive(Debug)]
 pub struct SyncStream {
-    header: Header,
+    header: StreamHeader,
     stream: TcpStream,
-    priv_key: RSAPrivateKey,
     remote_addr: SocketAddr,
 }
 impl SyncDataStream for SyncStream {
@@ -26,33 +27,20 @@ impl SyncDataStream for SyncStream {
     type Error = NetworkError;
     fn new(
         stream: Self::NetStream,
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
+        header: StreamHeader,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::Error> {
-        let header = Header::new(peer);
         Ok(Self {
             header,
             stream,
-            priv_key,
             remote_addr,
         })
-    }
-    fn peer(&self) -> &ArtificePeer {
-        self.header.peer()
-    }
-    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        self.header.pubkey()
     }
     fn socket_addr(&self) -> SocketAddr {
         self.remote_addr
     }
-    fn header(&self) -> &Header {
+    fn header(&self) -> &StreamHeader {
         &self.header
-    }
-    fn set_pubkey(mut self, pubkey: &PubKeyComp) -> Self {
-        self.header.set_pubkey(pubkey);
-        self
     }
 }
 impl SyncStream {
@@ -64,8 +52,8 @@ impl SyncStream {
         while data_len == 0 {
             data_len = self.stream.read(&mut buffer)?;
         }
-        let (dec_data, mut header) = asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])?;
-        if header != self.header {
+        let (dec_data, mut header, _indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
+        if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
             ));
@@ -82,8 +70,8 @@ impl SyncStream {
             while temp_len == 0 {
                 temp_len = self.stream.read(&mut buffer)?;
             }
-            let (dec_buffer, stream_header) =
-                asym_aes_decrypt(&self.priv_key, &buffer[data_len..data_len + temp_len])?;
+            let (dec_buffer, stream_header, _indexes) =
+                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
@@ -94,14 +82,7 @@ impl SyncStream {
     }
     /// send data to the peer
     pub fn send(&mut self, buffer: &[u8]) -> Result<usize, NetworkError> {
-        let key = match self.peer().pubkeycomp() {
-            Some(pubkey) => pubkey,
-            None => return Err(NetworkError::UnSet("public key not set".to_string())),
-        };
-        let public_key = RSAPublicKey::new(key.n().into(), key.e().into())?;
-        self.header.set_len(buffer.len());
-        let stream_header = self.header.stream_header();
-        let enc_data = asym_aes_encrypt(&public_key, stream_header, &buffer)?;
+        let enc_data = sym_aes_encrypt(&self.header, &buffer);
         Ok(self.stream.write(&enc_data)?)
     }
 }
@@ -126,17 +107,15 @@ impl std::iter::Iterator for SyncHost {
                         while data_len == 0 {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
-                        let (dec_data, _header) =
+                        let (_dec_data, header) =
                             asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])
                                 .expect("decryption failed");
                         let addr = match stream.peer_addr() {
                             Ok(addr) => addr,
                             Err(e) => return Some(Err(e.into())),
                         };
-                        let peer =
-                            serde_json::from_str(&String::from_utf8(dec_data).unwrap()).unwrap();
                         Some(Ok(SyncRequest::new(
-                            match SyncStream::new(stream, self.priv_key.clone(), &peer, addr) {
+                            match SyncStream::new(stream, header, addr) {
                                 Ok(stream) => stream,
                                 Err(e) => return Some(Err(e)),
                             },
@@ -185,10 +164,12 @@ impl SyncHost {
         let public_key =
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
-        let enc_data = asym_aes_encrypt(&public_key, Header::new(&peer).into(), &data).unwrap();
+        let aes_key = random_string(16).into_bytes();
+        let header: StreamHeader = Header::new(&peer, aes_key).into();
+        let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;
-        Ok(SyncStream::new(stream, self.priv_key.clone(), &peer, addr)?)
+        Ok(SyncStream::new(stream, header, addr)?)
     }
     /// designed only for testing but may be used for non global peers
     pub fn client_only(config: &ArtificeConfig) -> std::io::Result<Self> {
@@ -227,8 +208,7 @@ pub trait SyncDataStream {
     type Error: std::error::Error;
     fn new(
         stream: Self::NetStream,
-        priv_key: RSAPrivateKey,
-        peer: &ArtificePeer,
+        header: StreamHeader,
         remote_addr: SocketAddr,
     ) -> Result<Self, Self::Error>
     where
@@ -237,24 +217,7 @@ pub trait SyncDataStream {
         self.socket_addr().ip()
     }
     fn socket_addr(&self) -> SocketAddr;
-    fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        let components = match self.pubkeycomp() {
-            Some(pubkey) => pubkey,
-            None => return Err(NetworkError::UnSet("public key not set".to_string())),
-        };
-        Ok(RSAPublicKey::new(
-            components.n().into(),
-            components.e().into(),
-        )?)
-    }
-    fn pubkeycomp(&self) -> &Option<PubKeyComp> {
-        self.header().pubkeycomp()
-    }
-    fn peer(&self) -> &ArtificePeer {
-        self.header().peer()
-    }
-    fn header(&self) -> &Header;
-    fn set_pubkey(self, pubkey: &PubKeyComp) -> Self;
+    fn header(&self) -> &StreamHeader;
 }
 pub struct SyncRequest<T: SyncDataStream> {
     stream: T,
@@ -266,8 +229,14 @@ impl<T: SyncDataStream> ConnectionRequest for SyncRequest<T> {
         Self { stream }
     }
     fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, NetworkError> {
-        if let Some(key) = list.verify_peer(&self.stream.peer()) {
-            Ok(self.stream.set_pubkey(&key))
+        let peer = ArtificePeer::new(
+            self.stream.header().global_peer_hash(),
+            self.stream.header().peer_hash(),
+            self.stream.socket_addr().into(),
+            None,
+        );
+        if list.verify_peer(&peer).is_some() {
+            Ok(self.stream)
         } else {
             Err(NetworkError::ConnectionDenied(
                 "verification of peer failed".to_string(),

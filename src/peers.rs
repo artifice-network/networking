@@ -43,6 +43,14 @@ impl From<(Layer3Addr, u16)> for Layer3SocketAddr {
         Self { addr, port }
     }
 }
+impl From<&SocketAddr> for Layer3SocketAddr {
+    fn from(addr: &SocketAddr) -> Layer3SocketAddr {
+        Self {
+            addr: addr.ip().into(),
+            port: addr.port(),
+        }
+    }
+}
 /// this module is only supported on std, not tokio becuase it seems whoever implemented the
 /// tokio::net::ToSocketAddrs, was stingy, and made the trait a wrapper around a private trait
 /// a future implementation might use a std network stream, to construct the tokio equvilent
@@ -171,9 +179,14 @@ impl From<IpAddr> for Layer3Addr {
         }
     }
 }
+impl From<&SocketAddr> for Layer3Addr {
+    fn from(ipaddr: &SocketAddr) -> Layer3Addr {
+        ipaddr.ip().into()
+    }
+}
 impl From<Layer3SocketAddr> for IpAddr {
     fn from(addr: Layer3SocketAddr) -> IpAddr {
-        addr.into()
+        addr.ip().into()
     }
 }
 impl From<Layer3Addr> for IpAddr {
@@ -287,7 +300,7 @@ impl ArtificePeer {
     }
     // get ipaddr associated with this peer
     pub fn addr(&self) -> IpAddr {
-        self.addr.into()
+        self.addr.ip().into()
     }
     /// makes public key pair available to the client program, for encryption purposes
     pub fn pubkeycomp(&self) -> &Option<PubKeyComp> {

@@ -268,20 +268,23 @@ pub struct Header {
     peer: ArtificePeer,
     packet_len: usize,
     new_connection: bool,
+    key: Vec<u8>,
 }
 impl Header {
-    pub fn new(peer: &ArtificePeer) -> Self {
+    pub fn new(peer: &ArtificePeer, key: Vec<u8>) -> Self {
         Self {
             peer: peer.to_owned(),
             packet_len: 0,
             new_connection: false,
+            key,
         }
     }
-    pub fn new_pair(peer: &ArtificePeer) -> Self {
+    pub fn new_pair(peer: &ArtificePeer, key: Vec<u8>) -> Self {
         Self {
             peer: peer.to_owned(),
             packet_len: 0,
             new_connection: true,
+            key,
         }
     }
     pub fn stream_header(&self) -> StreamHeader {
@@ -305,13 +308,17 @@ impl Header {
     pub fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
         self.peer.set_pubkey(pubkey);
     }
+    pub fn key(&self) -> Vec<u8> {
+        self.key.clone()
+    }
 }
 
 impl From<&Header> for StreamHeader {
     fn from(header: &Header) -> Self {
-        StreamHeader::new(
+        StreamHeader::with_key(
             header.peer().global_peer_hash(),
             header.peer().peer_hash(),
+            header.key(),
             header.packet_len(),
         )
     }

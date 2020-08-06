@@ -1,8 +1,8 @@
-# RSA + AES Based Peer to Peer Networking
+# Peer to Peer TLS
 
 ## Purpose
 
-The purpose of this network is to provide secured AES asymmetric implementation that uses RNA to implement the asymmetric nature of this project's encryption.
+The purpose of this network is to provide secured AES asymmetric implementation that uses RSA. it is being designed as the network layer for a distributed artificial inteligence training platform known as Artifice. currently this crate is the furthest along in the Artifice Project by far.
 
 ## Divergence From Classic TLS
 
