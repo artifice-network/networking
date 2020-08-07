@@ -38,11 +38,8 @@ async fn handshake(
     priv_key: &RSAPrivateKey,
     sender_addr: SocketAddr,
 ) -> Result<(), NetworkError> {
-    println!("in handshake");
     let addr: SocketAddr = SocketAddr::new(peer.addr(), 6432);
-    println!("about to connect");
     let mut tcpstream = TcpStream::connect(addr).await?;
-    println!("about to write to stream");
     let sender_addr: Layer3SocketAddr = sender_addr.into();
     tcpstream
         .write(&aes_encrypt(
@@ -51,7 +48,6 @@ async fn handshake(
             &serde_json::to_string(&sender_addr)?.into_bytes(),
         )?)
         .await?;
-    println!("wrote message");
     let mut inbuf: [u8; 1000] = [0; 1000];
     let data_len = tcpstream.read(&mut inbuf).await?;
     let (dec_data, new_header, _indexes) = sym_aes_decrypt(header, &inbuf[0..data_len])?;
@@ -93,11 +89,11 @@ async fn recv_incoming(
     outgoing_sender: &Sender<OutgoingMsg>,
 ) -> NewConnection {
     let mut buffer: [u8; 65535] = [0; 65535];
-    let (mut stream, _addr) = listener.accept().await?;
+    let (mut stream, tcpaddr) = listener.accept().await?;
     let data_len = stream.read(&mut buffer).await?;
     let (dec_data, header) = aes_decrypt(&in_priv_key, &buffer[0..data_len])?;
     let layer3_addr: Layer3SocketAddr = serde_json::from_str(&String::from_utf8(dec_data)?)?;
-    let addr = layer3_addr.into();
+    let addr = SocketAddr::new(tcpaddr.ip(), layer3_addr.port());
     stream.write(&sym_aes_encrypt(&header, b"okay")).await?;
     // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
     let (incoming_sender, incoming_receiver): (Sender<IncomingMsg>, Receiver<(Vec<u8>, usize)>) =
@@ -107,8 +103,8 @@ async fn recv_incoming(
     let foward: AsyncQuery<(Vec<u8>, SocketAddr), (Vec<u8>, usize)> =
         AsyncQuery::create(outgoing_sender.clone(), incoming_receiver);
     // store incoming sender
+    println!("recv addr: {}", addr);
     in_sender.lock().await.insert(addr, incoming_sender);
-    println!("appended sender");
     Ok((header, addr, foward))
 }
 
@@ -562,7 +558,7 @@ impl SllpSocket {
         let socket_addr: SocketAddr = config.socket_addr().into();
         println!("socket addr: {}", socket_addr);
         let priv_key: RSAPrivateKey = priv_key_comp.into();
-        // centralized udp socket, taht data is routed through
+        // centralized udp socket, that data is routed through
         let socket = UdpSocket::bind(socket_addr).await?;
         let (mut request_sender, request_receiver): (
             Sender<NewConnection>,
@@ -582,6 +578,7 @@ impl SllpSocket {
                 let mut buffer: [u8; 65535] = [0; 65535];
                 match recv_half.recv_from(&mut buffer).await {
                     Ok((data_len, addr)) => {
+                        //println!("got message for: {}", addr);
                         let mut senders = streams.lock().await;
                         match senders.get_mut(&addr) {
                             Some(sender) => {
@@ -643,7 +640,6 @@ impl SllpSocket {
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
         let header: StreamHeader = Header::new(&peer, key).into();
-        println!("about to enter handshake, addr: {}", peer.socket_addr());
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
         let stream = SllpStream::new(query, header, peer.socket_addr());

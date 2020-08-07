@@ -71,7 +71,7 @@ pub fn get_private_key() -> RSAPrivateKey {
 /// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
 /// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
-    let peer_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(127, 0, 0, 1), 6464);
+    let peer_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0, 0, 0, 0), 6464);
     let host_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0, 0, 0, 0), 6464);
     let private_key = get_private_key();
     let pubkey = PubKeyComp::from(&private_key);

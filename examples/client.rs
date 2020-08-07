@@ -1,8 +1,10 @@
 use networking::{syncronous::SyncHost, test_config};
+use std::net::{SocketAddr, Ipv4Addr, IpAddr};
 
 fn main() {
     // this function is for testing only
-    let (peer, config) = test_config();
+    let (mut peer, config) = test_config();
+    peer.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10,0,0,81)), 6464));
     let host = SyncHost::client_only(&config).unwrap();
     let mut stream = host.connect(peer).unwrap();
     println!("connected");

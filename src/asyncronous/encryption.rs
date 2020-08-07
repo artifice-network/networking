@@ -84,8 +84,10 @@ pub fn asym_aes_decrypt(
     // decrypt the StreamHeader
     let padding = PaddingScheme::new_pkcs1v15_encrypt();
     let mut header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
+    println!("header: {:?}", header);
     let rem = header.remander();
     let data_len = header.packet_len();
+    println!("packet len in asym: {}", data_len);
     let decryptor = AesSafe128DecryptorX8::new(header.key());
     let mut read_data: [u8; 128] = [0; 128];
     for index in (256..data_len + 256).step_by(128) {

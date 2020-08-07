@@ -2,10 +2,13 @@ use networking::{
     asyncronous::{AsyncHost, AsyncRecv},
     test_config,
 };
+use std::net::{SocketAddr, IpAddr, Ipv4Addr};
+
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
-    let (peer, config) = test_config();
+    let (mut peer, config) = test_config();
     let host = AsyncHost::client_only(&config).await.unwrap();
+    peer.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10,0,0,81)), 6464));
     let mut stream = host.connect(peer).await.unwrap();
     let mut buffer = Vec::new();
     println!(

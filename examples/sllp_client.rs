@@ -4,15 +4,17 @@ use networking::test_config;
 use networking::Layer3Addr;
 use std::error::Error;
 use networking::random_string;
+use std::net::{IpAddr, Ipv4Addr, SocketAddr};
 
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn Error>> {
     let (mut peer, mut config) = test_config();
     println!("peer addr: {}", peer.socket_addr());
     // update default addr because only one udp socket per addr
-    config.set_socket_addr((Layer3Addr::newv4(127, 0, 0, 1), 3232).into());
+    config.set_socket_addr((Layer3Addr::newv4(0, 0, 0, 0), 3232).into());
     println!("about to create socket");
     let socket = SllpSocket::client_only(&config).await?;
+    peer.set_socket_addr(SocketAddr::new(IpAddr::V4(Ipv4Addr::new(10,0,0,232)), 6464));
     println!("created socket");
     let mut stream = socket.connect(&peer).await?;
     println!("entering loop");
