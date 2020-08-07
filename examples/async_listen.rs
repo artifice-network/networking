@@ -1,6 +1,6 @@
 use networking::{
     asyncronous::{AsyncHost, AsyncNetworkHost, AsyncSend},
-    test_config, ConnectionRequest,
+    test_config, ConnectionRequest, random_string,
 };
 #[tokio::main]
 async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -13,7 +13,7 @@ async fn main() -> Result<(), Box<dyn std::error::Error>> {
         let mut stream = strm.verify(&peer)?;
         // make sure you got a connection from the correct peer
         println!("sending message hello world");
-        stream.send(b"hello world").await.unwrap();
+        stream.send(&random_string(65120).into_bytes()).await.unwrap();
     }
     Ok(())
 }
