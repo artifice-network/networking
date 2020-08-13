@@ -10,7 +10,7 @@ This crate aims to prevent man in the middle attacks by encrypting pre-shared ke
 
 ## Version Details
 
-This version is a patch for previous version, it fixes the issue of packets being joined in tcp with respect to packet decryption. it also provides a more efficient means of using aes, in which instead of using a new aes key per packet, one is held for the entires session, increase the encryption speed 3x to 4x. (this speed up is not yet implemented for SLLP)
+This version is a patch for previous version, it fixes the issue of packets being joined in tcp with respect to packet decryption. it also provides a more efficient means of using aes, in which instead of using a new aes key per packet, one is held for the entires session, increase the encryption speed at least 4x. This version also provides a patch for data being fragmented according to the MTU of the NIC.
 
 ## Contact US
 This crate is the base for a much larger project, as such submitting it to crates.io is simply done in order to test it, as such please don't hesitate to file bug reports, or use the below email.
