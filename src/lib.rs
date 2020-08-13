@@ -184,6 +184,8 @@ use std::{
     thread,
     time::Duration,
 };
+// this module will cotain the network layer implementation for SLLP, and PeerStream
+//pub mod core;
 pub use utils::*;
 /// used to build and configure the local host
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]

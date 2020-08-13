@@ -11,6 +11,17 @@ use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 //                               AES Encryption
 // =================================================================================
 /// uses rsa to encrypt an aes key, that is used to encrypt the main body of the data
+
+pub fn header_peak(key: &[u8], input: &[u8]) -> Result<StreamHeader, NetworkError>{
+    let decryptor = AesSafe128DecryptorX8::new(key);
+    let mut header_vec = Vec::with_capacity(128);
+    unsafe { header_vec.set_len(128) }
+    // decrypt the StreamHeader
+    decryptor.decrypt_block_x8(&input[0..128], &mut header_vec);
+    let remote_header = StreamHeader::from_raw_padded(&header_vec)?;
+    Ok(remote_header)
+}
+
 pub fn asym_aes_encrypt(
     pub_key: &RSAPublicKey,
     mut header: StreamHeader,
@@ -164,6 +175,7 @@ pub fn sym_aes_decrypt(
     header: &StreamHeader,
     input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader, Vec<usize>), NetworkError> {
+    println!("sym decrypt");
     let mut indexes = Vec::new();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
     let mut header_vec = Vec::with_capacity(128);
@@ -203,33 +215,39 @@ pub fn sym_aes_decrypt(
 #[test]
 fn sym_encrypt_test() {
     use crate::random_string;
+    use rand::Rng;
     use std::time::SystemTime;
-    let time = SystemTime::now();
-    let instr = random_string(10);
-    let key = random_string(16).into_bytes();
-    let mut inbuf = instr.clone().into_bytes();
-    let peer_hash = random_string(50);
-    let mut header =
-        StreamHeader::with_key(&random_string(50), &peer_hash, key.clone(), inbuf.len());
-    let mut output = sym_aes_encrypt(&mut header, &mut inbuf);
-    let second_str = random_string(65410);
-    let mut second_buf = second_str.clone().into_bytes();
-    let mut second_header =
-        StreamHeader::with_key(&random_string(50), &peer_hash, key, second_buf.len());
-    output.extend_from_slice(&sym_aes_encrypt(&mut second_header, &mut second_buf));
-    let (inbuf, _stream_header, indexes) = sym_aes_decrypt(&header, &output).unwrap();
-    let remstr = instr.into_bytes();
-    let remsecstr = second_str.into_bytes();
-    assert_eq!(remstr.len(), *indexes.get(0).unwrap());
-    assert_eq!(remstr, inbuf[0..*indexes.get(0).unwrap()].to_vec());
-    assert_eq!(remsecstr.len(), *indexes.get(1).unwrap());
-    assert_eq!(
-        remsecstr[0..256].to_vec(),
-        inbuf[*indexes.get(0).unwrap()..*indexes.get(0).unwrap() + 256].to_vec()
-    );
-    let elapsed = time.elapsed().unwrap().as_millis();
-    println!("elapsed: {}", elapsed);
-    assert!(120 > elapsed);
+    for _ in 0..100 {
+        let time = SystemTime::now();
+        let mut rng = rand::thread_rng();
+        let ffloat: f64 = rng.gen();
+        let instr = random_string((ffloat * 65410f64) as usize);
+        let key = random_string(16).into_bytes();
+        let mut inbuf = instr.clone().into_bytes();
+        let peer_hash = random_string(50);
+        let mut header =
+            StreamHeader::with_key(&random_string(50), &peer_hash, key.clone(), inbuf.len());
+        let mut output = sym_aes_encrypt(&mut header, &mut inbuf);
+        let sfloat: f64 = rng.gen();
+        let second_str = random_string((sfloat * 65410f64) as usize);
+        let mut second_buf = second_str.clone().into_bytes();
+        let mut second_header =
+            StreamHeader::with_key(&random_string(50), &peer_hash, key, second_buf.len());
+        output.extend_from_slice(&sym_aes_encrypt(&mut second_header, &mut second_buf));
+        let (inbuf, _stream_header, indexes) = sym_aes_decrypt(&header, &output).unwrap();
+        let remstr = instr.into_bytes();
+        let remsecstr = second_str.into_bytes();
+        assert_eq!(remstr.len(), *indexes.get(0).unwrap());
+        assert_eq!(remstr, inbuf[0..*indexes.get(0).unwrap()].to_vec());
+        assert_eq!(remsecstr.len(), *indexes.get(1).unwrap());
+        assert_eq!(
+            remsecstr[0..256].to_vec(),
+            inbuf[*indexes.get(0).unwrap()..*indexes.get(0).unwrap() + 256].to_vec()
+        );
+        let elapsed = time.elapsed().unwrap().as_millis();
+        println!("elapsed: {}", elapsed);
+        assert!(500 > elapsed);
+    }
 }
 #[test]
 fn asym_encrypt_test() {

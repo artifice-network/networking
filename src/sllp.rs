@@ -9,7 +9,7 @@ use crate::asyncronous::AsyncRequest;
 use crate::asyncronous::{AsyncDataStream, AsyncNetworkHost, AsyncRecv, AsyncSend};
 use crate::{
     error::NetworkError, random_string, ArtificeConfig, ArtificePeer, AsyncQuery,
-    ConnectionRequest, Header, Query, StreamHeader, Layer3SocketAddr,
+    ConnectionRequest, Header, Layer3SocketAddr, Query, StreamHeader,
 };
 use async_trait::async_trait;
 use futures::{
@@ -654,7 +654,12 @@ impl SllpSocket {
             return Err(NetworkError::UnSet("client only".to_string()));
         }
         Ok((
-            SllpOutgoing::new(&self.streams, &self.priv_key, &self.outgoing_sender, self.addr),
+            SllpOutgoing::new(
+                &self.streams,
+                &self.priv_key,
+                &self.outgoing_sender,
+                self.addr,
+            ),
             SllpIncoming::new(&self.priv_key, &mut self.receiver),
         ))
     }

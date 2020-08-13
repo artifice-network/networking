@@ -14,7 +14,7 @@ use std::error::Error;
 pub mod encryption;
 use encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt, sym_aes_decrypt,
-    sym_aes_encrypt,
+    sym_aes_encrypt, header_peak,
 };
 use rsa::{RSAPrivateKey, RSAPublicKey};
 
@@ -29,6 +29,40 @@ use tokio::{
     net::TcpStream,
     stream::Stream,
 };
+
+async fn recv_data<S: AsyncRead + std::marker::Unpin>(header: &StreamHeader, stream: &mut S, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError>{
+    let mut buffer: [u8; 65535] = [0; 65535];
+        let mut data_len = stream.read(&mut buffer).await?;
+        let first_header = header_peak(header.key(), &buffer[0..data_len])?;
+        let packet_len = first_header.packet_len();
+        while data_len < packet_len {
+            data_len += stream.read(&mut buffer[data_len..65535]).await?;
+        }
+        println!("data_len: {}", data_len);
+        let (dec_data, mut header, indexes) = sym_aes_decrypt(&header, &buffer[0..data_len])?;
+        if header.peer_hash() != header.peer_hash() {
+            return Err(NetworkError::ConnectionDenied(
+                "headers don't match".to_string(),
+            ));
+        }
+        // add data not part of the header from the first packet to the greater vector
+        if header.packet_len() < 65536 {
+            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
+        } else {
+            outbuf.extend_from_slice(&dec_data[0..65535]);
+        }
+        //hadle further packetsheader_len +
+        while data_len < header.packet_len() {
+            let temp_len = stream.read(&mut buffer).await?;
+            let (dec_buffer, stream_header, _indexes) =
+                sym_aes_decrypt(&header, &buffer[data_len..data_len + temp_len])?;
+            header = stream_header;
+            data_len += temp_len;
+            buffer = [0; 65535];
+            outbuf.extend_from_slice(&dec_buffer);
+        }
+        Ok(indexes)
+}
 
 // ================================================================================
 //                                   Async Stream
@@ -101,34 +135,7 @@ impl OwnedStreamRecv {
 impl AsyncRecv for OwnedStreamRecv {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let mut buffer: [u8; 65535] = [0; 65535];
-        let mut data_len = self.reader.read(&mut buffer).await?;
-        while data_len == 0 {
-            data_len = self.reader.read(&mut buffer).await?;
-        }
-        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
-        if header.peer_hash() != self.header.peer_hash() {
-            return Err(NetworkError::ConnectionDenied(
-                "headers don't match".to_string(),
-            ));
-        }
-        // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() < 65536 {
-            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
-        } else {
-            outbuf.extend_from_slice(&dec_data[0..65535]);
-        }
-        //hadle further packetsheader_len +
-        while data_len < header.packet_len() {
-            let temp_len = self.reader.read(&mut buffer).await?;
-            let (dec_buffer, stream_header, _indexes) =
-                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
-            header = stream_header;
-            data_len += temp_len;
-            buffer = [0; 65535];
-            outbuf.extend_from_slice(&dec_buffer);
-        }
-        Ok(indexes)
+        recv_data(&self.header, &mut self.reader, outbuf).await
     }
     fn header(&self) -> &StreamHeader {
         &self.header
@@ -148,34 +155,7 @@ impl<'a> StreamRecv<'a> {
 impl<'a> AsyncRecv for StreamRecv<'a> {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let mut buffer: [u8; 65535] = [0; 65535];
-        let mut data_len = self.reader.read(&mut buffer).await?;
-        while data_len == 0 {
-            data_len = self.reader.read(&mut buffer).await?;
-        }
-        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
-        if header.peer_hash() != self.header.peer_hash() {
-            return Err(NetworkError::ConnectionDenied(
-                "headers don't match".to_string(),
-            ));
-        }
-        // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() < 65536 {
-            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
-        } else {
-            outbuf.extend_from_slice(&dec_data[0..65535]);
-        }
-        //hadle further packetsheader_len +
-        while data_len < header.packet_len() {
-            let temp_len = self.reader.read(&mut buffer).await?;
-            let (dec_buffer, stream_header, _indexes) =
-                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
-            header = stream_header;
-            data_len += temp_len;
-            buffer = [0; 65535];
-            outbuf.extend_from_slice(&dec_buffer);
-        }
-        Ok(indexes)
+        recv_data(&self.header, &mut self.reader, outbuf).await
     }
     fn header(&self) -> &StreamHeader {
         &self.header
@@ -220,41 +200,14 @@ impl AsyncDataStream for AsyncStream {
         })
     }
 }
-// ====================================== ====================================================
+// =============================================================================================
 //                                    Impl Async Stream
 // =============================================================================================
 #[async_trait]
 impl AsyncRecv for AsyncStream {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let mut buffer: [u8; 65535] = [0; 65535];
-        let mut data_len = self.stream.read(&mut buffer).await?;
-        while data_len == 0 {
-            data_len = self.stream.read(&mut buffer).await?;
-        }
-        let (dec_data, mut header, indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
-        if header.peer_hash() != self.header.peer_hash() {
-            return Err(NetworkError::ConnectionDenied(
-                "headers don't match".to_string(),
-            ));
-        }
-        // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() < 65536 {
-            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
-        } else {
-            outbuf.extend_from_slice(&dec_data[0..65535]);
-        }
-        //hadle further packetsheader_len +
-        while data_len < header.packet_len() {
-            let temp_len = self.stream.read(&mut buffer).await?;
-            let (dec_buffer, stream_header, _indexes) =
-                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
-            header = stream_header;
-            data_len += temp_len;
-            buffer = [0; 65535];
-            outbuf.extend_from_slice(&dec_buffer);
-        }
-        Ok(indexes)
+        recv_data(&self.header, &mut self.stream, outbuf).await
     }
     fn header(&self) -> &StreamHeader {
         &self.header

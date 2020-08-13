@@ -15,10 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
             loop {
                 let mut invec = Vec::new();
                 stream.recv(&mut invec).await.unwrap();
-                println!(
-                    "got message {}",
-                    String::from_utf8(invec).unwrap()
-                );
+                println!("got message {}", String::from_utf8(invec).unwrap());
             }
         });
     }
