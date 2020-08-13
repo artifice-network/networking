@@ -10,8 +10,8 @@ use rsa::{PaddingScheme, PublicKey, RSAPrivateKey, RSAPublicKey};
 // ==================================================================================
 //                               AES Encryption
 // =================================================================================
-/// uses rsa to encrypt an aes key, that is used to encrypt the main body of the data
 
+/// view the header for the packet, without decrypting anything else
 pub fn header_peak(key: &[u8], input: &[u8]) -> Result<StreamHeader, NetworkError>{
     let decryptor = AesSafe128DecryptorX8::new(key);
     let mut header_vec = Vec::with_capacity(128);
@@ -22,6 +22,7 @@ pub fn header_peak(key: &[u8], input: &[u8]) -> Result<StreamHeader, NetworkErro
     Ok(remote_header)
 }
 
+/// uses rsa to encrypt an aes key, that is used to encrypt the main body of the data
 pub fn asym_aes_encrypt(
     pub_key: &RSAPublicKey,
     mut header: StreamHeader,

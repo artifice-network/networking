@@ -1,7 +1,7 @@
 use crate::error::NetworkError;
 use crate::peers::*;
 pub mod encryption;
-use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt};
+use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt, header_peak};
 use crate::protocol::StreamHeader;
 use crate::random_string;
 use crate::ArtificeHost;
@@ -49,8 +49,10 @@ impl SyncStream {
         let mut buffer: [u8; 65535] = [0; 65535];
         let mut buf = Vec::new();
         let mut data_len = self.stream.read(&mut buffer)?;
-        while data_len == 0 {
-            data_len = self.stream.read(&mut buffer)?;
+        let first_header = header_peak(self.header.key(), &buffer[0..data_len])?;
+        let packet_len = first_header.packet_len();
+        while data_len < packet_len {
+            data_len += self.stream.read(&mut buffer[data_len..65535])?;
         }
         let (dec_data, mut header, _indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
         if header.peer_hash() != self.header.peer_hash() {
