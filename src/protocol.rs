@@ -1,6 +1,8 @@
-use crate::{error::NetworkError, random_string, Header};
+use crate::random_string;
+use crate::{error::NetworkError, Header, NetworkHash};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
+use std::convert::TryFrom;
 
 #[derive(
     FromPrimitive,
@@ -18,7 +20,9 @@ use num_traits::{FromPrimitive, ToPrimitive};
 )]
 pub enum PacketType {
     RawData = 0,
-    Administration = 1,
+    RawDataAck = 1,
+    Admin = 2,
+    AdminAck = 3,
 }
 impl Default for PacketType {
     fn default() -> Self {
@@ -31,27 +35,27 @@ use std::convert::TryInto;
 /// because it is much smaller
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize, Hash)]
 pub struct StreamHeader {
-    global_hash: String,
-    peer_hash: String,
+    global_hash: NetworkHash,
+    peer_hash: NetworkHash,
     aes_key: Vec<u8>,
     packet_len: usize,
     packet_type: PacketType,
     remander: u8,
 }
 impl StreamHeader {
-    pub fn new(global_hash: &str, peer_hash: &str, packet_len: usize) -> Self {
-        let aes_key = random_string(16).into_bytes();
+    pub fn new(global_hash: &NetworkHash, peer_hash: &NetworkHash, packet_len: usize) -> Self {
+        let aes_key: Vec<u8> = random_string(16).into_bytes();
         Self::with_key(global_hash, peer_hash, aes_key, packet_len)
     }
     pub fn with_key(
-        global_hash: &str,
-        peer_hash: &str,
+        global_hash: &NetworkHash,
+        peer_hash: &NetworkHash,
         aes_key: Vec<u8>,
         packet_len: usize,
     ) -> Self {
         Self {
-            global_hash: global_hash.to_string(),
-            peer_hash: peer_hash.to_string(),
+            global_hash: global_hash.to_owned(),
+            peer_hash: peer_hash.to_owned(),
             aes_key,
             packet_len,
             packet_type: PacketType::RawData,
@@ -64,10 +68,10 @@ impl StreamHeader {
     pub fn packet_type(&self) -> PacketType {
         self.packet_type
     }
-    pub fn global_peer_hash(&self) -> &str {
+    pub fn global_peer_hash(&self) -> &NetworkHash {
         &self.global_hash
     }
-    pub fn peer_hash(&self) -> &str {
+    pub fn peer_hash(&self) -> &NetworkHash {
         &self.peer_hash
     }
     pub fn key(&self) -> &[u8] {
@@ -92,11 +96,13 @@ impl StreamHeader {
     }
     /// used in place of serde_json::to_string(), because serde_json generates un-needed data
     pub fn to_raw(&self) -> Vec<u8> {
-        assert_eq!(self.global_hash.len(), 50);
-        assert_eq!(self.peer_hash.len(), 50);
-        let mut outvec = Vec::with_capacity(125);
-        outvec.extend_from_slice(&self.global_hash.as_bytes());
-        outvec.extend_from_slice(&self.peer_hash.as_bytes());
+        let mut outvec: Vec<u8> = Vec::with_capacity(58);
+        let global_hash: Vec<u8> = Vec::from(&self.global_hash);
+        assert_eq!(global_hash.len(), 16);
+        outvec.extend_from_slice(&global_hash);
+        let peer_hash: Vec<u8> = Vec::from(&self.peer_hash);
+        assert_eq!(peer_hash.len(), 16);
+        outvec.extend_from_slice(&peer_hash);
         outvec.extend_from_slice(&self.aes_key);
         outvec.extend_from_slice(&self.packet_len.to_be_bytes());
         outvec.push(self.remander);
@@ -105,21 +111,23 @@ impl StreamHeader {
     }
     pub fn to_raw_padded(&self) -> Vec<u8> {
         let mut vec = self.to_raw();
-        vec.extend_from_slice(&vec![0, 0]);
+        let mut rem_vec = Vec::with_capacity(71);
+        unsafe { rem_vec.set_len(71) };
+        vec.extend_from_slice(&rem_vec);
         vec
     }
     pub fn from_raw_padded(data: &[u8]) -> Result<Self, NetworkError> {
-        Self::from_raw(&data[0..126])
+        Self::from_raw(&data[0..58])
     }
     /// convert 125 bytes (length of data) to StreamHeader
     pub fn from_raw(data: &[u8]) -> Result<Self, NetworkError> {
-        assert_eq!(data.len(), 126);
-        let global_hash = String::from_utf8(data[0..50].to_vec())?;
-        let peer_hash = String::from_utf8(data[50..100].to_vec())?;
-        let aes_key = data[100..116].to_vec();
-        let packet_len = usize::from_be_bytes(data[116..124].try_into()?);
-        let remander = data[124];
-        let packet_type = FromPrimitive::from_u8(data[125]).unwrap_or_default();
+        assert_eq!(data.len(), 58);
+        let global_hash = NetworkHash::try_from(&data[0..16])?;
+        let peer_hash = NetworkHash::try_from(&data[16..32])?;
+        let aes_key = data[32..48].to_vec();
+        let packet_len = usize::from_be_bytes(data[48..56].try_into()?);
+        let remander = data[56];
+        let packet_type = FromPrimitive::from_u8(data[57]).unwrap_or_default();
         Ok(Self {
             global_hash,
             peer_hash,
@@ -137,13 +145,13 @@ impl PartialEq for Header {
 }
 impl PartialEq<StreamHeader> for Header {
     fn eq(&self, other: &StreamHeader) -> bool {
-        self.peer.global_peer_hash() == other.global_hash
-            && self.peer.peer_hash() == other.peer_hash
+        *self.peer.global_peer_hash() == other.global_hash
+            && *self.peer.peer_hash() == other.peer_hash
     }
 }
 impl PartialEq<Header> for StreamHeader {
     fn eq(&self, other: &Header) -> bool {
-        self.global_hash == other.peer.global_peer_hash()
-            && self.peer_hash == other.peer.peer_hash()
+        self.global_hash == *other.peer.global_peer_hash()
+            && self.peer_hash == *other.peer.peer_hash()
     }
 }

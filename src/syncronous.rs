@@ -1,13 +1,13 @@
+use crate::encryption::{
+    asym_aes_decrypt, asym_aes_encrypt, header_peak, sym_aes_decrypt, sym_aes_encrypt,
+};
 use crate::error::NetworkError;
 use crate::peers::*;
-pub mod encryption;
-use crate::asyncronous::encryption::{sym_aes_decrypt, sym_aes_encrypt, header_peak};
 use crate::protocol::StreamHeader;
 use crate::random_string;
 use crate::ArtificeHost;
 use crate::PeerList;
 use crate::{ArtificeConfig, ConnectionRequest, Header};
-pub use encryption::*;
 use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::net::{IpAddr, SocketAddr};
 use std::{
@@ -237,7 +237,7 @@ impl<T: SyncDataStream> ConnectionRequest for SyncRequest<T> {
             self.stream.socket_addr().into(),
             None,
         );
-        if list.verify_peer(&peer).is_some() {
+        if list.verify_peer(&peer) {
             Ok(self.stream)
         } else {
             Err(NetworkError::ConnectionDenied(

@@ -1,10 +1,13 @@
 use crate::database::HashDatabase;
 use crate::encryption::PubKeyComp;
 use crate::{error::NetworkError, random_string};
+use rand::{distributions::Standard, thread_rng, Rng};
 use rsa::RSAPublicKey;
-use std::fmt;
+use serde_hex::{SerHex, StrictPfx};
+use std::convert::{TryFrom, TryInto};
 use std::net::ToSocketAddrs;
 use std::net::{IpAddr, Ipv4Addr, Ipv6Addr, SocketAddr};
+use std::{fmt, iter};
 
 /// a serde serializable representation of std::net::SocketAddr
 #[derive(Serialize, Deserialize, Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -49,6 +52,109 @@ impl From<&SocketAddr> for Layer3SocketAddr {
             addr: addr.ip().into(),
             port: addr.port(),
         }
+    }
+}
+/// represents global_peer_hash and peer_hash with wider varience then String
+#[derive(Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize, PartialOrd, Ord)]
+pub struct NetworkHash {
+    #[serde(with = "SerHex::<StrictPfx>")]
+    key: [u16; 8],
+}
+impl NetworkHash {
+    pub fn generate() -> Self {
+        let mut rng = thread_rng();
+        let key_vec: Vec<u16> = iter::repeat(())
+            .map(|()| rng.sample(Standard))
+            .take(8)
+            .collect();
+        Self::try_from(key_vec.as_slice()).unwrap()
+    }
+}
+#[test]
+fn network_hash() {
+    let hash = NetworkHash::generate();
+    println!("hash: {}", hash);
+    let hash_string = serde_json::to_string(&hash).unwrap();
+    println!("serialized: {}", hash_string);
+    let de_hash: NetworkHash = serde_json::from_str(&hash_string).unwrap();
+    assert_eq!(de_hash, hash);
+    let hash_int: u128 = hash.into();
+    let new_hash: NetworkHash = hash_int.into();
+    assert_eq!(new_hash, hash);
+}
+impl fmt::Display for NetworkHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(
+            f,
+            "{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}:{:X}",
+            self.key[0],
+            self.key[1],
+            self.key[2],
+            self.key[3],
+            self.key[4],
+            self.key[5],
+            self.key[6],
+            self.key[7]
+        )
+    }
+}
+impl fmt::Debug for NetworkHash {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self)
+    }
+}
+impl From<NetworkHash> for u128 {
+    fn from(hash: NetworkHash) -> u128 {
+        unsafe { std::mem::transmute::<[u16; 8], u128>(hash.key) }
+    }
+}
+impl From<&Ipv6Addr> for NetworkHash {
+    fn from(addr: &Ipv6Addr) -> NetworkHash {
+        let array = addr.octets();
+        let key = unsafe { std::mem::transmute::<[u8; 16], [u16; 8]>(array) };
+        Self { key }
+    }
+}
+impl From<[u16; 8]> for NetworkHash {
+    fn from(value: [u16; 8]) -> Self {
+        Self::try_from(&value[..]).unwrap()
+    }
+}
+impl TryFrom<&[u8]> for NetworkHash {
+    type Error = NetworkError;
+    fn try_from(value: &[u8]) -> Result<NetworkHash, Self::Error> {
+        let array: [u8; 16] = value.try_into()?;
+        let key = unsafe { std::mem::transmute::<[u8; 16], [u16; 8]>(array) };
+        Ok(Self { key })
+    }
+}
+impl TryFrom<&[u16]> for NetworkHash {
+    type Error = NetworkError;
+    fn try_from(value: &[u16]) -> Result<NetworkHash, Self::Error> {
+        let key: [u16; 8] = value.try_into()?;
+        Ok(Self { key })
+    }
+}
+impl TryFrom<&[u32]> for NetworkHash {
+    type Error = NetworkError;
+    fn try_from(value: &[u32]) -> Result<NetworkHash, Self::Error> {
+        let array: [u32; 4] = value.try_into()?;
+        let key = unsafe { std::mem::transmute::<[u32; 4], [u16; 8]>(array) };
+        Ok(Self { key })
+    }
+}
+impl TryFrom<&[u64]> for NetworkHash {
+    type Error = NetworkError;
+    fn try_from(value: &[u64]) -> Result<NetworkHash, Self::Error> {
+        let array: [u64; 2] = value.try_into()?;
+        let key = unsafe { std::mem::transmute::<[u64; 2], [u16; 8]>(array) };
+        Ok(Self { key })
+    }
+}
+impl From<u128> for NetworkHash {
+    fn from(value: u128) -> Self {
+        let key = unsafe { std::mem::transmute::<u128, [u16; 8]>(value) };
+        Self { key }
     }
 }
 /// this module is only supported on std, not tokio becuase it seems whoever implemented the
@@ -204,6 +310,15 @@ impl From<&IpAddr> for Layer3Addr {
         Self::from(*addr)
     }
 }
+impl From<&NetworkHash> for Vec<u8> {
+    fn from(hash: &NetworkHash) -> Vec<u8> {
+        let mut outvec = Vec::with_capacity(16);
+        for num in hash.key.iter() {
+            outvec.extend_from_slice(&num.to_le_bytes());
+        }
+        outvec
+    }
+}
 /// make sure that bit shifting/as works as expected
 #[test]
 pub fn back_and_forth() {
@@ -257,17 +372,21 @@ impl RemotePeer {
         self.routable
     }
 }
+#[derive(Clone, Debug, Serialize, Deserialize, PartialEq, Eq)]
+pub struct PeerMeta {
+    pub public: bool,
+}
 /// this is a peer that represents a (theoretically) remote computer, this struct provides an attempt to verify the peer by holding a text string that only this particular host, and one host have access to
 /// this is done in conjunction with public key authentication, as well as remote_user auth on an already encrypted channel so only those with permission can exercise their permissions
 /// side noote permissions and peers operate on white list rather then blacklist for the sake of safety.
 #[derive(Serialize, Deserialize, Debug, Clone, Eq, PartialOrd, Ord)]
 pub struct ArtificePeer {
-    global_peer_hash: String,
+    global_peer_hash: NetworkHash,
     addr: Layer3SocketAddr,
     routable: bool,
     pubkey: Option<PubKeyComp>,
     /// this is only for the pair between this server and that peer
-    peer_hash: String,
+    peer_hash: NetworkHash,
 }
 impl PartialEq for ArtificePeer {
     fn eq(&self, other: &Self) -> bool {
@@ -281,21 +400,21 @@ impl ArtificePeer {
     /// (used to prevent the danger of pubkey theft as each pairkey only exists between one particular peer and another)
     /// remote user provides further verification of identity, and is used in junction with peer verification to control access rights
     pub fn new(
-        global_peer_hash: &str,
-        peer_hash: &str,
+        global_peer_hash: &NetworkHash,
+        peer_hash: &NetworkHash,
         addr: Layer3SocketAddr,
         pubkey: Option<PubKeyComp>,
     ) -> Self {
         let routable = true; //IpAddr::from(addr).is_global();
         Self {
-            global_peer_hash: global_peer_hash.to_string(),
+            global_peer_hash: global_peer_hash.to_owned(),
             addr,
             routable,
             pubkey,
-            peer_hash: peer_hash.to_string(),
+            peer_hash: peer_hash.to_owned(),
         }
     }
-    pub fn global_peer_hash(&self) -> &str {
+    pub fn global_peer_hash(&self) -> &NetworkHash {
         &self.global_peer_hash
     }
     // get ipaddr associated with this peer
@@ -314,7 +433,7 @@ impl ArtificePeer {
         Ok(RSAPublicKey::new(pubkey.n().into(), pubkey.e().into())?)
     }
     /// makes key pair hash available to the client program to verify the remote peer
-    pub fn peer_hash(&self) -> &str {
+    pub fn peer_hash(&self) -> &NetworkHash {
         &self.peer_hash
     }
     // includes port
@@ -329,34 +448,31 @@ impl ArtificePeer {
     }
 }
 impl PeerList for ArtificePeer {
-    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp> {
-        if self == peer {
-            self.pubkeycomp().as_ref()
-        } else {
-            None
-        }
+    fn verify_peer(&self, peer: &ArtificePeer) -> bool {
+        self == peer
     }
-    fn get_peer(&self, key: &str) -> Option<&ArtificePeer> {
-        if self.global_peer_hash == key {
+    fn get_peer(&self, key: &NetworkHash) -> Option<&ArtificePeer> {
+        if self.global_peer_hash == *key {
             return Some(self);
         }
         None
     }
 }
-impl PeerList for HashDatabase<ArtificePeer> {
-    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp> {
-        match self.get_peer(peer.global_peer_hash()) {
-            Some(peer) => peer.pubkeycomp().as_ref(),
-            None => None,
-        }
+/// type alias for the database structure in which peers should be saved
+pub type PeerDatabase = HashDatabase<ArtificePeer, NetworkHash, PeerMeta>;
+impl PeerList for PeerDatabase {
+    fn verify_peer(&self, peer: &ArtificePeer) -> bool {
+        // check if option contains value if it does return the value of meta.public, if not returns false
+        self.meta().as_ref().map_or_else(|| false, |v| v.public)
+            || self.get(peer.global_peer_hash()).map_or_else(|| false, |p| *p == *peer)
     }
-    fn get_peer(&self, key: &str) -> Option<&ArtificePeer> {
-        self.get(&key.to_string())
+    fn get_peer(&self, key: &NetworkHash) -> Option<&ArtificePeer> {
+        self.get(key)
     }
 }
 /// used in ConnectionRequests verify method, anything that implements this trait
 /// is assumed to be a list of peers that are allowed to connect to this device
 pub trait PeerList {
-    fn verify_peer(&self, peer: &ArtificePeer) -> Option<&PubKeyComp>;
-    fn get_peer(&self, key: &str) -> Option<&ArtificePeer>;
+    fn verify_peer(&self, peer: &ArtificePeer) -> bool;
+    fn get_peer(&self, key: &NetworkHash) -> Option<&ArtificePeer>;
 }

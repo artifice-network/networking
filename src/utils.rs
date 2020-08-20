@@ -1,5 +1,5 @@
 use crate::encryption::PubKeyComp;
-pub use crate::{ArtificeConfig, ArtificeHostData, ArtificePeer};
+pub use crate::{ArtificeConfig, ArtificeHostData, ArtificePeer, NetworkHash};
 use crate::{Layer3Addr, Layer3SocketAddr};
 use num_bigint_dig::BigUint;
 use rand::distributions::Alphanumeric;
@@ -76,11 +76,13 @@ pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
     let private_key = get_private_key();
     let pubkey = PubKeyComp::from(&private_key);
     // poorly named, global is unique to each host, and peer hash is a pre-shared key
-    let host_hash = "f7Cgkll1EegEa5UyuUEADpYAXRXwrhbSB0FLLiYxHpBotzNrw9";
-    let peer_hash = "7VKkjONo1txtTAiR1vQWUTsGxh8jwQJips1ClMv9zv1CsOo3ZX";
-    let remote_hash = "73C0YnEJRpTd56wPwR8zHa3egpW8iM1ShCRAtutkcssenNkJ0T";
-    let peer = ArtificePeer::new(remote_hash, peer_hash, peer_addr, Some(pubkey));
-    let host_data = ArtificeHostData::new(&private_key, host_hash);
+    let host_hash = NetworkHash::from(0xBB0895D662FEA66C1F3B2A5370CC5869u128);
+    let peer_hash = NetworkHash::from(0xFFC363F921FE9308963A280F8D1DEA8Du128);
+    let remote_hash = NetworkHash::from([
+        0x8BBu16, 0xD695u16, 0xFE62u16, 0x6CA6u16, 0x3B1Fu16, 0x532Au16, 0xCC70u16, 0x6958u16,
+    ]);
+    let peer = ArtificePeer::new(&remote_hash, &peer_hash, peer_addr, Some(pubkey));
+    let host_data = ArtificeHostData::new(&private_key, &host_hash);
     let config = ArtificeConfig::new(host_addr, host_data, false);
     (peer, config)
 }

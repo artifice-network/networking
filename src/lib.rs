@@ -36,8 +36,10 @@ let string = String::from_utf8(buffer).unwrap();
 println!("got message: {} from server", string);
 ```
 */
+#![allow(clippy::redundant_closure)]
 #[macro_use]
 extern crate serde_derive;
+extern crate serde_hex;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
 /// generates random strings of given length
@@ -47,7 +49,7 @@ use encryption::*;
 ///
 /// # Client Example
 ///
-/// ```
+/// ``` ignore
 /// use networking::{asyncronous::{AsyncHost, AsyncRecv, AsyncNetworkHost}, test_config};
 /// #[tokio::main]
 /// async fn main() -> Result<(), Box<dyn std::error::Error>> {
@@ -67,7 +69,7 @@ use encryption::*;
 ///
 /// # Server Example
 ///
-/// ```
+/// ``` ignore
 /// use networking::{
 ///     asyncronous::{AsyncHost, AsyncNetworkHost, AsyncSend},
 ///     test_config, ConnectionRequest,
@@ -236,11 +238,11 @@ impl ArtificeConfig {
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord)]
 pub struct ArtificeHostData {
     priv_key: PrivKeyComp,
-    global_peer_hash: String,
+    global_peer_hash: NetworkHash,
 }
 impl Default for ArtificeHostData {
     fn default() -> Self {
-        let global_peer_hash = random_string(50);
+        let global_peer_hash = NetworkHash::generate();
         let priv_key = PrivKeyComp::generate().unwrap();
         Self {
             priv_key,
@@ -249,18 +251,18 @@ impl Default for ArtificeHostData {
     }
 }
 impl ArtificeHostData {
-    pub fn new(private_key: &RSAPrivateKey, global_peer_hash: &str) -> Self {
+    pub fn new(private_key: &RSAPrivateKey, global_peer_hash: &NetworkHash) -> Self {
         let priv_key = PrivKeyComp::from(private_key);
         Self {
             priv_key,
-            global_peer_hash: global_peer_hash.to_string(),
+            global_peer_hash: global_peer_hash.to_owned(),
         }
     }
     /// returns the n, e, d, and primes of an RSA key
     pub fn privkeycomp(&self) -> &PrivKeyComp {
         &self.priv_key
     }
-    pub fn global_peer_hash(&self) -> &str {
+    pub fn global_peer_hash(&self) -> &NetworkHash {
         &self.global_peer_hash
     }
 }
@@ -332,7 +334,7 @@ impl From<Header> for StreamHeader {
 }
 #[test]
 fn header_to_raw_from_raw() {
-    let stream_header = StreamHeader::new(&random_string(50), &random_string(50), 0);
+    let stream_header = StreamHeader::new(&NetworkHash::generate(), &NetworkHash::generate(), 0);
     let raw = stream_header.to_raw();
     let new_header = StreamHeader::from_raw(&raw).unwrap();
     assert_eq!(stream_header, new_header);

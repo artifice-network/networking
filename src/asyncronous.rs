@@ -1,6 +1,10 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
+use crate::encryption::{
+    asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt, header_peak, sym_aes_decrypt,
+    sym_aes_encrypt,
+};
 use crate::ArtificeConfig;
 use crate::PeerList;
 use crate::{error::NetworkError, ArtificePeer, StreamHeader};
@@ -10,13 +14,8 @@ use futures::{
     future::Future,
     task::{Context, Poll},
 };
-use std::error::Error;
-pub mod encryption;
-use encryption::{
-    asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt, sym_aes_decrypt,
-    sym_aes_encrypt, header_peak,
-};
 use rsa::{RSAPrivateKey, RSAPublicKey};
+use std::error::Error;
 
 use std::net::{IpAddr, SocketAddr};
 use std::pin::Pin;
@@ -30,38 +29,42 @@ use tokio::{
     stream::Stream,
 };
 
-async fn recv_data<S: AsyncRead + std::marker::Unpin>(header: &StreamHeader, stream: &mut S, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError>{
+async fn recv_data<S: AsyncRead + std::marker::Unpin>(
+    header: &StreamHeader,
+    stream: &mut S,
+    outbuf: &mut Vec<u8>,
+) -> Result<Vec<usize>, NetworkError> {
     let mut buffer: [u8; 65535] = [0; 65535];
-        let mut data_len = stream.read(&mut buffer).await?;
-        let first_header = header_peak(header.key(), &buffer[0..data_len])?;
-        let packet_len = first_header.packet_len();
-        while data_len < packet_len {
-            data_len += stream.read(&mut buffer[data_len..65535]).await?;
-        }
-        println!("data_len: {}", data_len);
-        let (dec_data, mut header, indexes) = sym_aes_decrypt(&header, &buffer[0..data_len])?;
-        if header.peer_hash() != header.peer_hash() {
-            return Err(NetworkError::ConnectionDenied(
-                "headers don't match".to_string(),
-            ));
-        }
-        // add data not part of the header from the first packet to the greater vector
-        if header.packet_len() < 65536 {
-            outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
-        } else {
-            outbuf.extend_from_slice(&dec_data[0..65535]);
-        }
-        //hadle further packetsheader_len +
-        while data_len < header.packet_len() {
-            let temp_len = stream.read(&mut buffer).await?;
-            let (dec_buffer, stream_header, _indexes) =
-                sym_aes_decrypt(&header, &buffer[data_len..data_len + temp_len])?;
-            header = stream_header;
-            data_len += temp_len;
-            buffer = [0; 65535];
-            outbuf.extend_from_slice(&dec_buffer);
-        }
-        Ok(indexes)
+    let mut data_len = stream.read(&mut buffer).await?;
+    let first_header = header_peak(header.key(), &buffer[0..data_len])?;
+    let packet_len = first_header.packet_len();
+    while data_len < packet_len {
+        data_len += stream.read(&mut buffer[data_len..65535]).await?;
+    }
+    println!("data_len: {}", data_len);
+    let (dec_data, mut header, indexes) = sym_aes_decrypt(&header, &buffer[0..data_len])?;
+    if header.peer_hash() != header.peer_hash() {
+        return Err(NetworkError::ConnectionDenied(
+            "headers don't match".to_string(),
+        ));
+    }
+    // add data not part of the header from the first packet to the greater vector
+    if header.packet_len() < 65536 {
+        outbuf.extend_from_slice(&dec_data[0..header.data_len()]);
+    } else {
+        outbuf.extend_from_slice(&dec_data[0..65535]);
+    }
+    //hadle further packetsheader_len +
+    while data_len < header.packet_len() {
+        let temp_len = stream.read(&mut buffer).await?;
+        let (dec_buffer, stream_header, _indexes) =
+            sym_aes_decrypt(&header, &buffer[data_len..data_len + temp_len])?;
+        header = stream_header;
+        data_len += temp_len;
+        buffer = [0; 65535];
+        outbuf.extend_from_slice(&dec_buffer);
+    }
+    Ok(indexes)
 }
 
 // ================================================================================
@@ -467,7 +470,7 @@ impl<T: AsyncDataStream> ConnectionRequest for AsyncRequest<T> {
             self.stream.remote_addr().into(),
             None,
         );
-        if list.verify_peer(&peer).is_some() {
+        if list.verify_peer(&peer) {
             Ok(self.stream)
         } else {
             Err(NetworkError::ConnectionDenied(

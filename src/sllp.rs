@@ -1,12 +1,12 @@
 // ===================================================================
 //                                 Dependencies
 // ===================================================================
-use crate::asyncronous::encryption::{
+use crate::asyncronous::AsyncRequest;
+use crate::asyncronous::{AsyncDataStream, AsyncNetworkHost, AsyncRecv, AsyncSend};
+use crate::encryption::{
     asym_aes_decrypt as aes_decrypt, asym_aes_encrypt as aes_encrypt, sym_aes_decrypt,
     sym_aes_encrypt,
 };
-use crate::asyncronous::AsyncRequest;
-use crate::asyncronous::{AsyncDataStream, AsyncNetworkHost, AsyncRecv, AsyncSend};
 use crate::{
     error::NetworkError, random_string, ArtificeConfig, ArtificePeer, AsyncQuery,
     ConnectionRequest, Header, Layer3SocketAddr, Query, StreamHeader,
@@ -56,7 +56,9 @@ async fn handshake(
             "headers don't match".to_string(),
         ));
     }
-    if String::from_utf8(dec_data)? != "okay" {
+    let in_data = String::from_utf8(dec_data)?;
+    println!("in_data: {}", in_data);
+    if in_data != "okay" {
         return Err(NetworkError::ConnectionDenied(String::from(
             "connection failed",
         )));
@@ -580,14 +582,11 @@ impl SllpSocket {
                     Ok((data_len, addr)) => {
                         //println!("got message for: {}", addr);
                         let mut senders = streams.lock().await;
-                        match senders.get_mut(&addr) {
-                            Some(sender) => {
-                                sender
-                                    .send((buffer[0..data_len].to_vec(), data_len))
-                                    .await
-                                    .unwrap();
-                            }
-                            None => (),
+                        if let Some(sender) = senders.get_mut(&addr) {
+                            sender
+                                .send((buffer[0..data_len].to_vec(), data_len))
+                                .await
+                                .unwrap();
                         }
                     }
                     Err(e) => panic!("error: {}", e),

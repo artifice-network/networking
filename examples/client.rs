@@ -5,7 +5,7 @@ fn main() {
     // this function is for testing only
     let (mut peer, config) = test_config();
     peer.set_socket_addr(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 81)),
+        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 232)),
         6464,
     ));
     let host = SyncHost::client_only(&config).unwrap();

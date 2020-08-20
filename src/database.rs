@@ -1,5 +1,5 @@
-use crate::asyncronous::encryption::{
-    database_aes_decrypt as sym_aes_decrypt, database_aes_encrypt as sym_aes_encrypt,
+use crate::encryption::{
+    simple_aes_decrypt as sym_aes_decrypt, simple_aes_encrypt as sym_aes_encrypt,
 };
 use crate::error::NetworkError;
 use serde::{de::DeserializeOwned, Serialize};
@@ -63,24 +63,40 @@ impl<'a, V: HashValue, K: HashKey> IntoIterator for &'a mut HashDatabase<V, K> {
         self.data.iter_mut()
     }
 }
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, Hash)]
+pub struct EmptyMeta {}
 #[derive(Clone)]
-pub struct HashDatabase<V: HashValue, K: HashKey = String> {
+pub struct HashDatabase<V: HashValue, K: HashKey = String, M: HashValue = EmptyMeta> {
     data: HashMap<K, V>,
+    meta: Option<M>,
     key: Vec<u8>,
     root: PathBuf,
 }
-impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
+impl<V: HashValue, K: HashKey, M: HashValue> HashDatabase<V, K, M> {
     /// # Arguments
     ///
     /// path: path to the root of the database
     /// key: an option of bytes used to encrypt and decrypt the database
     pub fn new<P: AsRef<Path>>(path: P, key: Vec<u8>) -> Result<Self, NetworkError> {
+        let meta_path = path.as_ref().to_path_buf();
+        if meta_path.exists() {
+            let mut file = File::open(meta_path)?;
+            let mut invec = Vec::new();
+            file.read_to_end(&mut invec)?;
+            sym_aes_decrypt(&key, &mut invec);
+            let entry = serde_json::from_str(&String::from_utf8(invec)?)?;
+            return Self::from_hashmap(HashMap::new(), Some(entry), path, key);
+        }
+        Self::from_hashmap(HashMap::new(), None, path, key)
+    }
+    pub fn from_hashmap<P: AsRef<Path>>(data: HashMap<K, V>, meta: Option<M>, path: P, key: Vec<u8>) -> Result<Self, NetworkError> {
         let root = path.as_ref().to_path_buf();
         if !root.exists() {
             std::fs::create_dir(root.clone())?;
         }
         Ok(Self {
-            data: HashMap::new(),
+            data,
+            meta,
             key,
             root,
         })
@@ -97,15 +113,22 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
     pub fn get(&self, key: &K) -> Option<&V> {
         self.data.get(key)
     }
+    pub fn load_meta(&mut self) -> Result<(), NetworkError>{
+        let path = self.root.join("meta.artusr");
+        let mut file = File::open(path)?;
+        let mut invec = Vec::new();
+        file.read_to_end(&mut invec)?;
+        sym_aes_decrypt(&self.key, &mut invec);
+        let entry = serde_json::from_str(&String::from_utf8(invec)?)?;
+        self.meta = Some(entry);
+        Ok(())
+    }
     pub fn load(&mut self, key: &K) -> Result<(), NetworkError> {
+        if self.data.get(key).is_some() {
+            return Ok(());
+        }
         let path_str = key.to_string();
         let path = self.root.join(path_str);
-        if !path.exists() {
-            return Err(NetworkError::IOError(std::io::Error::new(
-                std::io::ErrorKind::NotFound,
-                "entry not found",
-            )));
-        }
         let mut file = File::open(path)?;
         let mut invec = Vec::new();
         file.read_to_end(&mut invec)?;
@@ -192,5 +215,8 @@ impl<V: HashValue, K: HashKey> HashDatabase<V, K> {
             entry.unpack(self.root.join(entry.path()?))?;
         }
         Ok(())
+    }
+    pub fn meta(&self) -> &Option<M> {
+        &self.meta
     }
 }
