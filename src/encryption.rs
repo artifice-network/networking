@@ -4,7 +4,7 @@ use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey}
 use std::fmt;
 
 use crate::error::NetworkError;
-use crate::{StreamHeader};
+use crate::StreamHeader;
 use crypto::{
     aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
     symmetriccipher::{BlockDecryptorX8, BlockEncryptorX8},
@@ -409,8 +409,8 @@ fn sym_encrypt_test() {
 }*/
 #[test]
 fn asym_encrypt_test() {
-    use std::time::SystemTime;
     use crate::NetworkHash;
+    use std::time::SystemTime;
     let time = SystemTime::now();
     use crate::random_string;
     let peer_hash = NetworkHash::generate();

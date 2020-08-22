@@ -36,14 +36,31 @@ impl SyncDataStream for SyncStream {
             remote_addr,
         })
     }
-    fn socket_addr(&self) -> SocketAddr {
-        self.remote_addr
+    fn remote_addr(&self) -> &SocketAddr {
+        &self.remote_addr
     }
     fn header(&self) -> &StreamHeader {
         &self.header
     }
 }
 impl SyncStream {
+    pub fn connect(peer: &ArtificePeer) -> Result<SyncStream, NetworkError> {
+        let mut stream = TcpStream::connect(peer.socket_addr())?;
+        // encrypt the peer before sending
+        let key = match peer.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
+        let public_key =
+            RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
+        let data = serde_json::to_string(&peer).unwrap().into_bytes();
+        let aes_key = random_string(16).into_bytes();
+        let header: StreamHeader = Header::new(&peer, aes_key).into();
+        let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
+        stream.write_all(&enc_data)?;
+        let addr = stream.peer_addr()?;
+        Ok(SyncStream::new(stream, header, addr)?)
+    }
     /// implented in place of std::io::Read, because reading to empty vec fails
     pub fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<usize, NetworkError> {
         let mut buffer: [u8; 65535] = [0; 65535];
@@ -216,9 +233,9 @@ pub trait SyncDataStream {
     where
         Self: std::marker::Sized;
     fn addr(&self) -> IpAddr {
-        self.socket_addr().ip()
+        self.remote_addr().ip()
     }
-    fn socket_addr(&self) -> SocketAddr;
+    fn remote_addr(&self) -> &SocketAddr;
     fn header(&self) -> &StreamHeader;
 }
 pub struct SyncRequest<T: SyncDataStream> {
@@ -234,7 +251,7 @@ impl<T: SyncDataStream> ConnectionRequest for SyncRequest<T> {
         let peer = ArtificePeer::new(
             self.stream.header().global_peer_hash(),
             self.stream.header().peer_hash(),
-            self.stream.socket_addr().into(),
+            self.stream.remote_addr().into(),
             None,
         );
         if list.verify_peer(&peer) {

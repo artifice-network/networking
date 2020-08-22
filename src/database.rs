@@ -89,7 +89,12 @@ impl<V: HashValue, K: HashKey, M: HashValue> HashDatabase<V, K, M> {
         }
         Self::from_hashmap(HashMap::new(), None, path, key)
     }
-    pub fn from_hashmap<P: AsRef<Path>>(data: HashMap<K, V>, meta: Option<M>, path: P, key: Vec<u8>) -> Result<Self, NetworkError> {
+    pub fn from_hashmap<P: AsRef<Path>>(
+        data: HashMap<K, V>,
+        meta: Option<M>,
+        path: P,
+        key: Vec<u8>,
+    ) -> Result<Self, NetworkError> {
         let root = path.as_ref().to_path_buf();
         if !root.exists() {
             std::fs::create_dir(root.clone())?;
@@ -113,7 +118,7 @@ impl<V: HashValue, K: HashKey, M: HashValue> HashDatabase<V, K, M> {
     pub fn get(&self, key: &K) -> Option<&V> {
         self.data.get(key)
     }
-    pub fn load_meta(&mut self) -> Result<(), NetworkError>{
+    pub fn load_meta(&mut self) -> Result<(), NetworkError> {
         let path = self.root.join("meta.artusr");
         let mut file = File::open(path)?;
         let mut invec = Vec::new();

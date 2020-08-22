@@ -464,7 +464,9 @@ impl PeerList for PeerDatabase {
     fn verify_peer(&self, peer: &ArtificePeer) -> bool {
         // check if option contains value if it does return the value of meta.public, if not returns false
         self.meta().as_ref().map_or_else(|| false, |v| v.public)
-            || self.get(peer.global_peer_hash()).map_or_else(|| false, |p| *p == *peer)
+            || self
+                .get(peer.global_peer_hash())
+                .map_or_else(|| false, |p| *p == *peer)
     }
     fn get_peer(&self, key: &NetworkHash) -> Option<&ArtificePeer> {
         self.get(key)

@@ -16,6 +16,7 @@ pub enum NetworkError {
     ConnectionDenied(String),
     FromSlice(TryFromSliceError),
     UnSet(String),
+    ExecFailed(Box<dyn std::fmt::Debug + Send + Sync>),
     AsyncSendError(String),
     AsyncRecvError(String),
     SyncSendError(String),
@@ -43,6 +44,7 @@ impl fmt::Display for NetworkError {
             NetworkError::TomlSerError(e) => format!("{}", e),
             NetworkError::JoinError(e) => format!("{}", e),
             NetworkError::DirError(e) => format!("{}", e),
+            NetworkError::ExecFailed(e) => format!("{:?}", e),
         };
         write!(f, "{}", msg)
     }

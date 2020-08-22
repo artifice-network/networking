@@ -173,6 +173,22 @@ pub struct AsyncStream {
     remote_addr: SocketAddr,
 }
 impl AsyncStream {
+    pub async fn connect(peer: &ArtificePeer) -> Result<AsyncStream, NetworkError> {
+        let mut stream = TcpStream::connect(peer.socket_addr()).await?;
+        // encrypt the peer before sending
+        let key = match peer.pubkeycomp() {
+            Some(pubkey) => pubkey,
+            None => return Err(NetworkError::UnSet("public key not set".to_string())),
+        };
+        let public_key =
+            RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
+        let data = serde_json::to_string(&peer)?.into_bytes();
+        let stream_header = StreamHeader::new(peer.global_peer_hash(), peer.peer_hash(), 0);
+        let enc_data = aes_encrypt(&public_key, stream_header.clone(), &data)?;
+        stream.write(&enc_data).await?;
+        let addr = peer.socket_addr();
+        Ok(AsyncStream::new(stream, stream_header, addr)?)
+    }
     pub fn into_split(self) -> (OwnedStreamSend, OwnedStreamRecv) {
         let (read_half, write_half) = self.stream.into_split();
         (
