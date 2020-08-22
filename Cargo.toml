@@ -11,7 +11,6 @@ repository = "https://github.com/artifice-network/networking"
 description = "secure RSA + AES network implementations in a peer to peer enabled manner"
 
 [features]
-default = ["unified"]
 unified = []
 
 [dependencies]
