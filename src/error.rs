@@ -25,6 +25,8 @@ pub enum NetworkError {
     TomlSerError(toml::ser::Error),
     JoinError(JoinError),
     DirError(walkdir::Error),
+    NotAsync,
+    NotSync,
 }
 impl fmt::Display for NetworkError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
@@ -45,6 +47,8 @@ impl fmt::Display for NetworkError {
             NetworkError::JoinError(e) => format!("{}", e),
             NetworkError::DirError(e) => format!("{}", e),
             NetworkError::ExecFailed(e) => format!("{:?}", e),
+            NetworkError::NotAsync => String::from("NotAsync"),
+            NetworkError::NotSync => String::from("NotSync"),
         };
         write!(f, "{}", msg)
     }
@@ -113,5 +117,10 @@ impl From<toml::ser::Error> for NetworkError {
 impl From<walkdir::Error> for NetworkError {
     fn from(error: walkdir::Error) -> Self {
         NetworkError::DirError(error)
+    }
+}
+impl From<String> for NetworkError {
+    fn from(error: String) -> Self {
+        NetworkError::UnSet(error)
     }
 }
