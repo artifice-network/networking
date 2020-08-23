@@ -31,7 +31,7 @@ pub enum SyncAsync<A, S> {
     /// type is sync version
     Sync(S),
 }
-impl<A, S> SyncAsync<A, S> {
+impl<A: 'static, S: 'static> SyncAsync<A, S> {
     /// # Warning
     /// this function can only be used on the tokio runtime
     pub async fn async_or_default<'a, T, U: futures::Future<Output = T>, D: FnOnce(&'a S) -> T>(
@@ -159,6 +159,12 @@ impl<A, S> SyncAsync<A, S> {
     pub fn is_sync(&self) -> bool {
         !self.is_async()
     }
+    pub fn from_sync(stream: S) -> Self {
+        SyncAsync::Sync(stream)
+    }
+    pub fn from_async(stream: A) -> Self {
+        SyncAsync::Async(stream)
+    }
 }
 pub struct DataStream {
     stream: SyncAsync<AsyncStream, SyncStream>,
@@ -181,6 +187,12 @@ impl DataStream {
                 stream: SyncAsync::Sync(SyncStream::connect(peer)?),
             }),
         }
+    }
+    pub fn from_sync(stream: SyncStream) -> Self {
+        Self {stream: SyncAsync::Sync(stream)}
+    }
+    pub fn from_async(stream: AsyncStream) -> Self {
+        Self {stream: SyncAsync::Async(stream)}
     }
 }
 impl SyncDataStream for DataStream {
@@ -242,4 +254,10 @@ impl AsyncDataStream for DataStream {
             stream: SyncAsync::Async(AsyncStream::new(stream, header, remote_addr)?),
         })
     }
+}
+#[test]
+fn bc() {
+    let s_as: SyncAsync<String, String> = SyncAsync::from_sync(String::from("I'm Syncronous"));
+    let v: String = s_as.collapse();
+    println!("s_as value: {}", v);
 }
