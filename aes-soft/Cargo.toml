@@ -1,0 +1,20 @@
+[package]
+name = "aes-soft"
+version = "0.5.0"
+description = "modified version of RustCrypto AES soft, that uses slices/vec instaed of GenericArray"
+authors = ["RustCrypto Developers"]
+license = "MIT OR Apache-2.0"
+edition = "2018"
+documentation = "https://docs.rs/aes-soft"
+repository = "https://github.com/RustCrypto/block-ciphers"
+keywords = ["crypto", "aes", "rijndael", "block-cipher"]
+categories = ["cryptography", "no-std"]
+
+[dependencies]
+opaque-debug = "0.3"
+byteorder = { version = "1", default-features = false }
+serde_derive = "1.0.115"
+serde = "1.0.115"
+
+[dev-dependencies]
+block-cipher = { version = "0.8", features = ["dev"] }

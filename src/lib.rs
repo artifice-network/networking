@@ -36,15 +36,15 @@ let string = String::from_utf8(buffer).unwrap();
 println!("got message: {} from server", string);
 ```
 */
-#![feature(untagged_unions)]
+//#![warn(missing_docs, rust_2018_idioms)]
+#![feature(try_trait)]
 #![allow(clippy::redundant_closure)]
 #[macro_use]
 extern crate serde_derive;
-extern crate serde_hex;
+#[macro_use]
+extern crate err_derive;
 /// contains blowfish encryption wrapper, as well as storage solution (serde) for BigUint principly BigNum
 pub mod encryption;
-/// generates random strings of given length
-pub mod error;
 use encryption::*;
 /// asyncronous implementation of the tcp networking provided in this crate
 ///
@@ -105,7 +105,7 @@ use protocol::StreamHeader;
 /// ```ignore
 /// use networking::sllp::SllpSocket;
 /// use networking::test_config;
-/// use networking::Layer3Addr;
+/// use networking::L3Addr;
 /// use std::error::Error;
 /// use networking::asyncronous::{AsyncSend, AsyncNetworkHost};
 ///
@@ -114,7 +114,7 @@ use protocol::StreamHeader;
 ///     let (mut peer, config) = test_config();
 ///     let socket = SllpSocket::from_host_config(&config).await?;
 ///     // this needs to be updated to remote peer, because two devices cannot bind to the smae address
-///     peer.set_socket_addr((Layer3Addr::newv4(127, 0, 0, 1), 6464).into());
+///     peer.set_socket_addr((L3Addr::newv4(127, 0, 0, 1), 6464).into());
 ///     let mut stream = socket.connect(&peer).await;
 ///     loop { stream.send(b"hello world").await.unwrap(); }
 ///     Ok(())
@@ -172,17 +172,18 @@ pub mod sllp;
 /// ```
 pub mod database;
 
-//#[cfg(feature = "unified")]
+#[cfg(feature = "unified")]
 pub mod unified;
 
 pub mod syncronous;
-use crate::encryption::PubKeyComp;
-use crate::error::NetworkError;
 
 pub use peers::*;
 pub mod utils;
 
-use rsa::{RSAPrivateKey, RSAPublicKey};
+pub mod net_core;
+pub use net_core::*;
+
+use rsa::{RSAPrivateKey};
 use std::error::Error;
 use std::net::ToSocketAddrs;
 use std::{
@@ -198,11 +199,11 @@ pub use utils::*;
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 pub struct ArtificeConfig {
     broadcast: bool,
-    addr: Layer3SocketAddr,
+    addr: L4Addr,
     host: ArtificeHostData,
 }
 impl ArtificeConfig {
-    pub fn new(addr: Layer3SocketAddr, host: ArtificeHostData, broadcast: bool) -> Self {
+    pub fn new(addr: L4Addr, host: ArtificeHostData, broadcast: bool) -> Self {
         Self {
             broadcast,
             addr,
@@ -210,7 +211,7 @@ impl ArtificeConfig {
         }
     }
     /// used to create new host, primarily designed for use by the installer crate
-    pub fn generate(addr: Layer3SocketAddr) -> Self {
+    pub fn generate(addr: L4Addr) -> Self {
         let broadcast = false;
         let host = ArtificeHostData::default();
         Self {
@@ -228,10 +229,10 @@ impl ArtificeConfig {
     pub fn port(&self) -> u16 {
         self.addr.port()
     }
-    pub fn addr(&self) -> Layer3Addr {
+    pub fn addr(&self) -> L3Addr {
         self.addr.ip()
     }
-    pub fn socket_addr(&self) -> Layer3SocketAddr {
+    pub fn socket_addr(&self) -> L4Addr {
         self.addr
     }
     pub fn set_socket_addr(&mut self, addr: SocketAddr) {
@@ -271,72 +272,6 @@ impl ArtificeHostData {
         &self.global_peer_hash
     }
 }
-/// contains peer information sent accross the network in an effort to prevent man in the middle attacks
-#[derive(Debug, Clone, Eq, Serialize, Deserialize)]
-pub struct Header {
-    peer: ArtificePeer,
-    packet_len: usize,
-    new_connection: bool,
-    key: Vec<u8>,
-}
-impl Header {
-    pub fn new(peer: &ArtificePeer, key: Vec<u8>) -> Self {
-        Self {
-            peer: peer.to_owned(),
-            packet_len: 0,
-            new_connection: false,
-            key,
-        }
-    }
-    pub fn new_pair(peer: &ArtificePeer, key: Vec<u8>) -> Self {
-        Self {
-            peer: peer.to_owned(),
-            packet_len: 0,
-            new_connection: true,
-            key,
-        }
-    }
-    pub fn stream_header(&self) -> StreamHeader {
-        StreamHeader::from(self)
-    }
-    pub fn peer(&self) -> &ArtificePeer {
-        &self.peer
-    }
-    pub fn pubkey(&self) -> Result<RSAPublicKey, NetworkError> {
-        self.peer.pubkey()
-    }
-    pub fn pubkeycomp(&self) -> &Option<PubKeyComp> {
-        self.peer.pubkeycomp()
-    }
-    pub fn packet_len(&self) -> usize {
-        self.packet_len
-    }
-    pub fn set_len(&mut self, len: usize) {
-        self.packet_len = len;
-    }
-    pub fn set_pubkey(&mut self, pubkey: &PubKeyComp) {
-        self.peer.set_pubkey(pubkey);
-    }
-    pub fn key(&self) -> Vec<u8> {
-        self.key.clone()
-    }
-}
-
-impl From<&Header> for StreamHeader {
-    fn from(header: &Header) -> Self {
-        StreamHeader::with_key(
-            header.peer().global_peer_hash(),
-            header.peer().peer_hash(),
-            header.key(),
-            header.packet_len(),
-        )
-    }
-}
-impl From<Header> for StreamHeader {
-    fn from(header: Header) -> Self {
-        StreamHeader::from(&header)
-    }
-}
 #[test]
 fn header_to_raw_from_raw() {
     let stream_header = StreamHeader::new(&NetworkHash::generate(), &NetworkHash::generate(), 0);
@@ -347,6 +282,8 @@ fn header_to_raw_from_raw() {
 
 /// used to set discoverability on the local network
 pub trait ArtificeHost {
+    /// sets up a udp socket to broadcast the existence of a peer on the local network
+    /// kind of stupid, but at the time I thought it was a good idea as an optional feature
     fn begin_broadcast<S: ToSocketAddrs>(socket_addr: S) -> std::io::Result<Sender<bool>> {
         let (sender, recv) = channel();
         let socket = UdpSocket::bind(socket_addr)?;
@@ -362,12 +299,15 @@ pub trait ArtificeHost {
         });
         Ok(sender)
     }
+    /// stop the udp socket from sending packets, by using the sender provided from the begin_broadcast method
     fn stop_broadcasting(&self);
 }
 /// implemented on both async and sync connection requests structs to define how to verify a peer
 pub trait ConnectionRequest {
     type Error: Error;
+    /// the data stream object that this trait operates on
     type NetStream;
+    #[allow(missing_docs)]
     fn new(stream: Self::NetStream) -> Self;
     /// used to ensure only known peers are allow to connect
     fn verify<L: PeerList>(self, list: &L) -> Result<Self::NetStream, Self::Error>;
@@ -375,4 +315,22 @@ pub trait ConnectionRequest {
     /// this function allows unauthorized peers to connect to this device
     /// should only be used if a pair request is being run
     unsafe fn unverify(self) -> Self::NetStream;
+}
+/// used for getting custom identifier for objects
+pub trait LongHash {
+    /// select how to construct the hash
+    fn hash(&self) -> &NetworkHash;
+    /// get the indexes for a slice of T
+    fn index<T: LongHash>(peers: &[T]) -> Vec<&NetworkHash> {
+        let mut peer_vec = Vec::with_capacity(peers.len());
+        for peer in peers {
+            peer_vec.push(peer.hash());
+        }
+        peer_vec
+    }
+}
+impl LongHash for ArtificePeer {
+    fn hash(&self) -> &NetworkHash {
+        self.global_peer_hash()
+    }
 }

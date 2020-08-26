@@ -8,8 +8,8 @@ use crate::encryption::{
     sym_aes_encrypt,
 };
 use crate::{
-    error::NetworkError, random_string, ArtificeConfig, ArtificePeer, AsyncQuery,
-    ConnectionRequest, Header, Layer3SocketAddr, Query, StreamHeader,
+    random_string, ArtificeConfig, ArtificePeer, AsyncQuery, ConnectionRequest, L4Addr,
+    NetworkError, Query, StreamHeader,
 };
 use async_trait::async_trait;
 use futures::{
@@ -40,7 +40,7 @@ async fn handshake(
 ) -> Result<(), NetworkError> {
     let addr: SocketAddr = SocketAddr::new(peer.addr(), 6432);
     let mut tcpstream = TcpStream::connect(addr).await?;
-    let sender_addr: Layer3SocketAddr = sender_addr.into();
+    let sender_addr: L4Addr = sender_addr.into();
     tcpstream
         .write(&aes_encrypt(
             &RSAPublicKey::from(priv_key),
@@ -67,7 +67,7 @@ async fn handshake(
 }
 fn incoming_conn(
     receiver: &mut Receiver<NewConnection>,
-    ctx: &mut Context,
+    ctx: &mut Context<'_>,
 ) -> Poll<Option<Result<AsyncRequest<SllpStream>, NetworkError>>> {
     let (header, addr, query) = match receiver.poll_recv(ctx) {
         Poll::Ready(data) => match data {
@@ -94,7 +94,7 @@ async fn recv_incoming(
     let (mut stream, tcpaddr) = listener.accept().await?;
     let data_len = stream.read(&mut buffer).await?;
     let (dec_data, header) = aes_decrypt(&in_priv_key, &buffer[0..data_len])?;
-    let layer3_addr: Layer3SocketAddr = serde_json::from_str(&String::from_utf8(dec_data)?)?;
+    let layer3_addr: L4Addr = serde_json::from_str(&String::from_utf8(dec_data)?)?;
     let addr = SocketAddr::new(tcpaddr.ip(), layer3_addr.port());
     stream.write(&sym_aes_encrypt(&header, b"okay")).await?;
     // SllpSocket -> SllpStream Vec<u8> = data recv, usize = data length
@@ -321,7 +321,7 @@ impl SllpStream {
             remote_addr,
         }
     }
-    pub fn split(&mut self) -> (SllpSender, SllpReceiver) {
+    pub fn split(&mut self) -> (SllpSender<'_>, SllpReceiver<'_>) {
         let (sender, receiver) = self.query.split();
         (
             SllpSender::new(&self.header, self.remote_addr, sender),
@@ -410,13 +410,13 @@ impl OwnedIncoming {
 }
 impl Stream for OwnedIncoming {
     type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         incoming_conn(&mut self.receiver, ctx)
     }
 }
 impl Future for OwnedIncoming {
     type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.poll_next(ctx) {
             Poll::Ready(val) => Poll::Ready(val),
             Poll::Pending => Poll::Pending,
@@ -436,13 +436,13 @@ impl<'a> SllpIncoming<'a> {
 }
 impl<'a> Stream for SllpIncoming<'a> {
     type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         incoming_conn(&mut self.receiver, ctx)
     }
 }
 impl<'a> Future for SllpIncoming<'a> {
     type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.poll_next(ctx) {
             Poll::Ready(val) => Poll::Ready(val),
             Poll::Pending => Poll::Pending,
@@ -474,7 +474,7 @@ impl OwnedOutgoing {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = Header::new(&peer, key).into();
+        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
 
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
@@ -514,7 +514,7 @@ impl<'a> SllpOutgoing<'a> {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = Header::new(&peer, key).into();
+        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
 
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
@@ -638,7 +638,7 @@ impl SllpSocket {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = Header::new(&peer, key).into();
+        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
         let stream = SllpStream::new(query, header, peer.socket_addr());
@@ -648,7 +648,7 @@ impl SllpSocket {
             .insert(peer.socket_addr(), incoming_sender);
         Ok(stream?)
     }
-    pub fn split(&mut self) -> Result<(SllpOutgoing, SllpIncoming), NetworkError> {
+    pub fn split(&mut self) -> Result<(SllpOutgoing<'_>, SllpIncoming<'_>), NetworkError> {
         if self.client_only {
             return Err(NetworkError::UnSet("client only".to_string()));
         }
@@ -682,13 +682,13 @@ impl SllpSocket {
 }
 impl Stream for SllpSocket {
     type Item = Result<AsyncRequest<SllpStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         incoming_conn(&mut self.receiver, ctx)
     }
 }
 impl Future for SllpSocket {
     type Output = Option<Result<AsyncRequest<SllpStream>, NetworkError>>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         match self.poll_next(ctx) {
             Poll::Ready(val) => Poll::Ready(val),
             Poll::Pending => Poll::Pending,

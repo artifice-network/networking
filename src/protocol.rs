@@ -1,5 +1,5 @@
 use crate::random_string;
-use crate::{error::NetworkError, Header, NetworkHash};
+use crate::{LongHash, NetworkError, NetworkHash};
 use num_derive::{FromPrimitive, ToPrimitive};
 use num_traits::{FromPrimitive, ToPrimitive};
 use std::convert::TryFrom;
@@ -138,20 +138,8 @@ impl StreamHeader {
         })
     }
 }
-impl PartialEq for Header {
-    fn eq(&self, other: &Self) -> bool {
-        self.peer == other.peer && self.pubkeycomp() == other.pubkeycomp()
-    }
-}
-impl PartialEq<StreamHeader> for Header {
-    fn eq(&self, other: &StreamHeader) -> bool {
-        *self.peer.global_peer_hash() == other.global_hash
-            && *self.peer.peer_hash() == other.peer_hash
-    }
-}
-impl PartialEq<Header> for StreamHeader {
-    fn eq(&self, other: &Header) -> bool {
-        self.global_hash == *other.peer.global_peer_hash()
-            && self.peer_hash == *other.peer.peer_hash()
+impl LongHash for StreamHeader {
+    fn hash(&self) -> &NetworkHash {
+        &self.global_hash
     }
 }

@@ -1,13 +1,13 @@
 use crate::encryption::{
     asym_aes_decrypt, asym_aes_encrypt, header_peak, sym_aes_decrypt, sym_aes_encrypt,
 };
-use crate::error::NetworkError;
 use crate::peers::*;
 use crate::protocol::StreamHeader;
 use crate::random_string;
 use crate::ArtificeHost;
+use crate::NetworkError;
 use crate::PeerList;
-use crate::{ArtificeConfig, ConnectionRequest, Header};
+use crate::{ArtificeConfig, ConnectionRequest};
 use rsa::{RSAPrivateKey, RSAPublicKey};
 use std::net::{IpAddr, SocketAddr};
 use std::{
@@ -55,7 +55,7 @@ impl SyncStream {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let aes_key = random_string(16).into_bytes();
-        let header: StreamHeader = Header::new(&peer, aes_key).into();
+        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
         let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;
@@ -184,7 +184,7 @@ impl SyncHost {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let aes_key = random_string(16).into_bytes();
-        let header: StreamHeader = Header::new(&peer, aes_key).into();
+        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
         let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;

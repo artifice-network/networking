@@ -1,13 +1,20 @@
 use crate::encryption::PubKeyComp;
 pub use crate::{ArtificeConfig, ArtificeHostData, ArtificePeer, NetworkHash};
-use crate::{Layer3Addr, Layer3SocketAddr};
+use crate::{L3Addr, L4Addr};
+use ipnetwork::IpNetworkError;
 use num_bigint_dig::BigUint;
 use rand::distributions::Alphanumeric;
 use rand::{thread_rng, Rng};
 use rsa::RSAPrivateKey;
+use std::array::TryFromSliceError;
+use std::string::FromUtf8Error;
+use std::sync::mpsc::RecvError as SyncRecvError;
+use std::sync::mpsc::SendError as SyncSendError;
 use std::sync::mpsc::{channel, Receiver, Sender};
+use tokio::sync::mpsc::error::RecvError as AsyncRecvError;
+use tokio::sync::mpsc::error::SendError as AsyncSendError;
+use tokio::task::JoinError;
 
-use crate::error::NetworkError;
 use std::iter;
 use tokio::sync::mpsc::{
     channel as tokio_channel, Receiver as AsyncReceiver, Sender as AsyncSender,
@@ -71,8 +78,8 @@ pub fn get_private_key() -> RSAPrivateKey {
 /// used in examples, and tests, generates ArtificePeer, and ArtificeConfig because private keys take a while to generate
 /// this method generates static data, so it should never be used in production environments
 pub fn test_config() -> (ArtificePeer, ArtificeConfig) {
-    let peer_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0, 0, 0, 0), 6464);
-    let host_addr: Layer3SocketAddr = Layer3SocketAddr::new(Layer3Addr::newv4(0, 0, 0, 0), 6464);
+    let peer_addr: L4Addr = L4Addr::new(L3Addr::newv4(0, 0, 0, 0), 6464);
+    let host_addr: L4Addr = L4Addr::new(L3Addr::newv4(0, 0, 0, 0), 6464);
     let private_key = get_private_key();
     let pubkey = PubKeyComp::from(&private_key);
     // poorly named, global is unique to each host, and peer hash is a pre-shared key
@@ -185,14 +192,75 @@ impl<S, R> Query for SyncQuery<S, R> {
         (&mut self.sender, &mut self.receiver)
     }
 }
-
-// ================================================================
-//                          Tests
-// ================================================================
-/*#[test]
-fn random_string_test(){
-    use std::time::SystemTime;
-    let time1 = SystemTime::now();
-    let first_string = random_string(16);
-    assert!(time1.elapsed().unwrap().as_micros() < 400);
+/*#[derive(Debug, Error)]
+pub enum ConnectionError {
+    #[error(display = "Invalid Header: {:?}", _0)]
+    InvalidHeader(StreamHeader),
+    #[error(display = "Invalid Peer: {:?}", _0)]
+    InvalidPeer,
+    UnReachable,
 }*/
+#[derive(Debug, Error)]
+pub enum NetworkError {
+    #[error(display = "IO Error: {}", _0)]
+    IOError(#[source] std::io::Error),
+    #[error(display = "RSA Error: {}", _0)]
+    RSAError(#[source] rsa::errors::Error),
+    #[error(display = "JSON Parse Error: {}", _0)]
+    JsonError(#[source] serde_json::error::Error),
+    #[error(display = "UTF-8 Parse Error: {}", _0)]
+    UTF8(#[source] FromUtf8Error),
+    #[error(display = "Connect Denied: {}", _0)]
+    ConnectionDenied(#[error(no_from)] String),
+    #[error(display = "From Slice Error: {}", _0)]
+    FromSlice(#[source] TryFromSliceError),
+    #[error(display = "Unknown Error Kind: {}", _0)]
+    UnSet(String),
+    #[error(display = "Execution Failed: {:?}", _0)]
+    ExecFailed(#[error(no_from)] String),
+    #[error(display = "Async Send Error: {}", _0)]
+    AsyncSendError(#[error(no_from)] String),
+    #[error(display = "Async Recv Error: {}", _0)]
+    AsyncRecvError(#[error(no_from)] String),
+    #[error(display = "Sync Send Error: {}", _0)]
+    SyncSendError(#[error(no_from)] String),
+    #[error(display = "Sync Recv Error: {}", _0)]
+    SyncRecvError(#[error(no_from)] String),
+    #[error(display = "Join Error: {}", _0)]
+    JoinError(#[source] JoinError),
+    #[error(display = "WalkDir Error: {}", _0)]
+    DirError(#[source] walkdir::Error),
+    #[error(display = "Not Asyncronous")]
+    NotAsync,
+    #[error(display = "Not Syncronous")]
+    NotSync,
+    #[error(display = "No Data Yet")]
+    Empty,
+    #[error(display = "ip network error: {}", _0)]
+    NetErr(#[source] IpNetworkError),
+}
+impl<T> From<AsyncSendError<T>> for NetworkError {
+    fn from(error: AsyncSendError<T>) -> NetworkError {
+        NetworkError::AsyncSendError(format!("{}", error))
+    }
+}
+impl From<AsyncRecvError> for NetworkError {
+    fn from(error: AsyncRecvError) -> NetworkError {
+        NetworkError::AsyncRecvError(format!("{}", error))
+    }
+}
+impl<T> From<SyncSendError<T>> for NetworkError {
+    fn from(error: SyncSendError<T>) -> NetworkError {
+        NetworkError::SyncSendError(format!("{}", error))
+    }
+}
+impl From<SyncRecvError> for NetworkError {
+    fn from(error: SyncRecvError) -> NetworkError {
+        NetworkError::SyncRecvError(format!("{}", error))
+    }
+}
+impl From<std::option::NoneError> for NetworkError {
+    fn from(_: std::option::NoneError) -> NetworkError {
+        NetworkError::Empty
+    }
+}

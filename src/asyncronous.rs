@@ -7,8 +7,9 @@ use crate::encryption::{
 };
 use crate::ArtificeConfig;
 use crate::PeerList;
-use crate::{error::NetworkError, ArtificePeer, StreamHeader};
 use crate::{ArtificeHost, ConnectionRequest};
+use crate::{ArtificePeer, NetworkError, StreamHeader};
+use crate::{LongHash, NetworkHash};
 use async_trait::async_trait;
 use futures::{
     future::Future,
@@ -77,6 +78,7 @@ pub struct OwnedStreamSend {
     remote_addr: SocketAddr,
 }
 impl OwnedStreamSend {
+    /// construct new OwnedStreamSend by using owned StreamHeader, WriteHalf, and SocketAddr
     pub fn new(header: StreamHeader, writer: OwnedWriteHalf, remote_addr: SocketAddr) -> Self {
         Self {
             header,
@@ -104,6 +106,7 @@ pub struct StreamSend<'a> {
     remote_addr: SocketAddr,
 }
 impl<'a> StreamSend<'a> {
+    /// creates new StreamSend by borrowing writter, and stream header from async stream
     pub fn new(writer: WriteHalf<'a>, remote_addr: SocketAddr, header: &'a StreamHeader) -> Self {
         Self {
             writer,
@@ -130,6 +133,7 @@ pub struct OwnedStreamRecv {
     reader: OwnedReadHalf,
 }
 impl OwnedStreamRecv {
+    /// consumes a StreamHeader, and tokio::net::OwnedReadHalf to create OwnedStreamRecv, used to read incoming data on a stream
     pub fn new(header: StreamHeader, reader: OwnedReadHalf) -> Self {
         Self { header, reader }
     }
@@ -150,6 +154,7 @@ pub struct StreamRecv<'a> {
     header: &'a StreamHeader,
 }
 impl<'a> StreamRecv<'a> {
+    /// constructs borrowed receiver by borrowing ReadHalf, from the tokio::net::TcpStream stored in AsyncStream
     pub fn new(reader: ReadHalf<'a>, header: &'a StreamHeader) -> Self {
         Self { reader, header }
     }
@@ -173,6 +178,7 @@ pub struct AsyncStream {
     remote_addr: SocketAddr,
 }
 impl AsyncStream {
+    /// uses peers L4Addr/std::net::SocketAddr to attempt a tcp connection, functionally same as tokio::net::TcpStream::connect
     pub async fn connect(peer: &ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
@@ -189,6 +195,7 @@ impl AsyncStream {
         let addr = peer.socket_addr();
         Ok(AsyncStream::new(stream, stream_header, addr)?)
     }
+    /// creates owned reader writer halves of the TcpStream
     pub fn into_split(self) -> (OwnedStreamSend, OwnedStreamRecv) {
         let (read_half, write_half) = self.stream.into_split();
         (
@@ -196,12 +203,18 @@ impl AsyncStream {
             OwnedStreamRecv::new(self.header, read_half),
         )
     }
-    pub fn split(&mut self) -> (StreamSend, StreamRecv) {
+    /// creates borrowed Reader Writer of TcpStream
+    pub fn split(&mut self) -> (StreamSend<'_>, StreamRecv<'_>) {
         let (reader, writer) = self.stream.split();
         (
             StreamSend::new(writer, self.remote_addr, &self.header),
             StreamRecv::new(reader, &self.header),
         )
+    }
+}
+impl LongHash for AsyncStream {
+    fn hash(&self) -> &NetworkHash {
+        self.header.hash()
     }
 }
 impl AsyncDataStream for AsyncStream {
@@ -287,6 +300,7 @@ impl AsyncNetworkHost for AsyncHost {
     }
 }
 impl AsyncHost {
+    /// creates a new Async Host without a TcpListener, this is done in order to allow outgoing connections, but not incoming ones
     pub async fn client_only(config: &ArtificeConfig) -> Result<Self, NetworkError> {
         let data = config.host_data();
         let priv_key_comp = data.privkeycomp();
@@ -304,6 +318,7 @@ impl AsyncHost {
             listener,
         })
     }
+    /// connects to remote host in the same manner as AsyncStream
     pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
@@ -320,6 +335,7 @@ impl AsyncHost {
         let addr = peer.socket_addr();
         Ok(AsyncStream::new(stream, stream_header, addr)?)
     }
+    /// attempts to create Incoming, from which new TcpStreams can be established, this is done by using the TcpListener, and as such if this object is constructed using client_only this method will fail
     pub fn incoming(&mut self) -> Result<Incoming<'_>, NetworkError> {
         match &mut self.listener {
             Some(listener) => Ok(Incoming::new(listener, &self.priv_key)),
@@ -329,7 +345,7 @@ impl AsyncHost {
 }
 impl Stream for AsyncHost {
     type Item = Result<AsyncRequest<AsyncStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         Incoming::poll_next(
             Pin::new(&mut match self.incoming() {
                 Ok(incoming) => incoming,
@@ -352,9 +368,7 @@ impl Default for Outgoing {
     }
 }
 impl Outgoing {
-    pub fn new() -> Self {
-        Self::default()
-    }
+    /// same as AsyncHost::connect, and AsnycStrea::connect
     pub async fn connect(&self, peer: ArtificePeer) -> Result<AsyncStream, NetworkError> {
         let mut stream = TcpStream::connect(peer.socket_addr()).await?;
         // encrypt the peer before sending
@@ -378,13 +392,14 @@ pub struct Incoming<'a> {
     priv_key: &'a RSAPrivateKey,
 }
 impl<'a> Incoming<'a> {
+    /// borrows TcpListener and private key to create an incoming listener
     pub fn new(listener: &'a mut TcpListener, priv_key: &'a RSAPrivateKey) -> Incoming<'a> {
         Self { listener, priv_key }
     }
 }
 impl<'a> Stream for Incoming<'a> {
     type Item = Result<AsyncRequest<AsyncStream>, NetworkError>;
-    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Option<Self::Item>> {
+    fn poll_next(mut self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Option<Self::Item>> {
         match self.listener.poll_accept(ctx) {
             Poll::Ready(stream) => {
                 match stream {
@@ -424,22 +439,27 @@ impl<'a> Stream for Incoming<'a> {
 }
 impl<'a> Future for Incoming<'a> {
     type Output = Option<Result<AsyncRequest<AsyncStream>, NetworkError>>;
-    fn poll(self: Pin<&mut Self>, ctx: &mut Context) -> Poll<Self::Output> {
+    fn poll(self: Pin<&mut Self>, ctx: &mut Context<'_>) -> Poll<Self::Output> {
         Stream::poll_next(self, ctx)
     }
 }
 /// trait for sending data over the network
 #[async_trait]
 pub trait AsyncSend {
+    /// the error that is thrown when sending data fails
     type SendError: Error;
+    /// send data returning the length of data sent, in theory
     async fn send(&mut self, outbuf: &[u8]) -> Result<usize, Self::SendError>;
+    /// returns the socket addr that this tream is connected to
     fn remote_addr(&self) -> &SocketAddr;
 }
 /// trait for receiving network data
 #[async_trait]
 pub trait AsyncRecv {
     type RecvError: Error;
+    /// receive data into inbuf, returning indexes into the vector at which position, seperate messages begin because of tcp concating packets
     async fn recv(&mut self, inbuf: &mut Vec<u8>) -> Result<Vec<usize>, Self::RecvError>;
+    /// return current StreamHeader, not the packet len is not accurate, that field is only used in the encoded version of the struct
     fn header(&self) -> &StreamHeader;
 }
 /// currently only used as a marker, will implement more functionality in the future
@@ -454,9 +474,11 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
     ) -> Result<Self, Self::StreamError>
     where
         Self: std::marker::Sized;
+    #[allow(missing_docs)]
     fn remote_port(&self) -> u16 {
         self.remote_addr().port()
     }
+    #[allow(missing_docs)]
     fn remote_ip(&self) -> IpAddr {
         self.remote_addr().ip()
     }
@@ -465,6 +487,7 @@ pub trait AsyncDataStream: AsyncSend + AsyncRecv {
 #[async_trait]
 pub trait AsyncNetworkHost: Stream {
     type Error: Error;
+    /// construct a host instance based on the data in ArtificeConfig
     async fn from_host_config(config: &ArtificeConfig) -> Result<Self, Self::Error>
     where
         Self: std::marker::Sized;

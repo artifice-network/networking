@@ -3,7 +3,7 @@ use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
 
-use crate::error::NetworkError;
+use crate::NetworkError;
 use crate::StreamHeader;
 use crypto::{
     aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
@@ -14,11 +14,6 @@ use crypto::{
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct BigNum {
     value: Vec<u8>,
-}
-impl BigNum {
-    pub fn to_string_unstable(&self) -> String {
-        unsafe { String::from_utf8_unchecked(self.value.clone()) }
-    }
 }
 impl From<&BigUint> for BigNum {
     fn from(num: &BigUint) -> Self {
@@ -56,12 +51,15 @@ pub struct PubKeyComp {
     e: BigNum,
 }
 impl PubKeyComp {
+    /// constructs the public key from n, and e
     pub fn from_parts(n: BigNum, e: BigNum) -> Self {
         Self { n, e }
     }
+    /// returns the modulus of the public key
     pub fn n(&self) -> &BigNum {
         &self.n
     }
+    /// returns the exponent of the public key
     pub fn e(&self) -> &BigNum {
         &self.e
     }
@@ -103,18 +101,23 @@ pub struct PrivKeyComp {
     primes: Vec<BigNum>,
 }
 impl PrivKeyComp {
+    /// returns the public key modulus
     pub fn n(&self) -> &BigNum {
         &self.n
     }
+    /// returns the exponent
     pub fn e(&self) -> &BigNum {
         &self.e
     }
+    /// returns the private key modulus
     pub fn d(&self) -> &BigNum {
         &self.d
     }
+    /// returns the root primes, from which totient of pg, d, and n are derived
     pub fn primes(&self) -> &Vec<BigNum> {
         &self.primes
     }
+    /// returns all data in the structure
     pub fn into_components(self) -> (BigNum, BigNum, BigNum, Vec<BigNum>) {
         (self.n, self.e, self.d, self.primes)
     }
@@ -235,6 +238,7 @@ pub fn asym_aes_encrypt(
 // ===============================================================================
 //                          AES Decryption
 // ================================================================================
+/// uses rsa private key to decrypt data, returning the decrypted data
 pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
     input: &[u8],
@@ -332,7 +336,6 @@ pub fn sym_aes_decrypt(
     header: &StreamHeader,
     input: &[u8],
 ) -> Result<(Vec<u8>, StreamHeader, Vec<usize>), NetworkError> {
-    println!("sym decrypt");
     let mut indexes = Vec::new();
     let decryptor = AesSafe128DecryptorX8::new(header.key());
     let mut header_vec = Vec::with_capacity(128);
@@ -435,3 +438,11 @@ fn asym_encrypt_test() {
     println!("{}", elapsed);
     assert!(600 > elapsed);
 }
+/*/// in place encryption, vector instead of slice is used in case buffer is to small
+pub fn sym_inplace_encrypt(header: &StreamHeader, data: &mut Vec<u8>) {
+
+}
+/// in place decryption, vector instead of slice is used in case the buffer is to small
+pub fn sym_inplace_decrypt(header: &StreamHeader, data: &mut Vec<u8>) {
+
+}*/

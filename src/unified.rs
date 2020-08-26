@@ -3,16 +3,14 @@ use crate::{
         AsyncDataStream, AsyncRecv, AsyncSend, AsyncStream, OwnedStreamRecv, OwnedStreamSend,
         StreamRecv, StreamSend,
     },
-    error::NetworkError,
     peers::ArtificePeer,
     protocol::StreamHeader,
     syncronous::{SyncDataStream, SyncStream},
+    NetworkError,
 };
 use async_trait::async_trait;
 use futures::executor;
-use std::{
-    net::{SocketAddr, TcpStream},
-};
+use std::net::{SocketAddr, TcpStream};
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub enum StreamType {
@@ -189,10 +187,14 @@ impl DataStream {
         }
     }
     pub fn from_sync(stream: SyncStream) -> Self {
-        Self {stream: SyncAsync::Sync(stream)}
+        Self {
+            stream: SyncAsync::Sync(stream),
+        }
     }
     pub fn from_async(stream: AsyncStream) -> Self {
-        Self {stream: SyncAsync::Async(stream)}
+        Self {
+            stream: SyncAsync::Async(stream),
+        }
     }
 }
 impl SyncDataStream for DataStream {
@@ -261,3 +263,7 @@ fn bc() {
     let v: String = s_as.collapse();
     println!("s_as value: {}", v);
 }
+pub struct Host {
+    host: SyncAsync<AsyncHost, SyncHost>,
+}
+impl AsyncDataStream for Host {}
