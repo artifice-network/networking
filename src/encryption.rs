@@ -2,6 +2,7 @@ use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
+use aes_soft::{Aes128, BlockCipher, NewBlockCipher};
 
 use crate::NetworkError;
 use crate::StreamHeader;
@@ -312,7 +313,7 @@ pub fn sym_aes_encrypt(header_ref: &StreamHeader, input: &[u8]) -> Vec<u8> {
     let mut rem_vec = Vec::with_capacity(remander as usize);
     unsafe { rem_vec.set_len(remander as usize) }
     let key = header.key();
-    let encryptor = AesSafe128EncryptorX8::new(key);
+    let encryptor = Aes128::new(key);
     let mut data = Vec::with_capacity(input.len() + 128);
     header.set_packet_len(input.len());
     header.set_remander(remander);
@@ -325,8 +326,8 @@ pub fn sym_aes_encrypt(header_ref: &StreamHeader, input: &[u8]) -> Vec<u8> {
     for index in (0..full_len + 128).step_by(128) {
         let mut read_data: [u8; 128] = [0; 128];
         // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
-        encryptor.encrypt_block_x8(&data[index..index + 128], &mut read_data[..]);
-        output.extend_from_slice(&read_data);
+        encryptor.encrypt_blocks(&mut data[index..index + 128]);
+        output.extend_from_slice(&data[index..index+128]);
     }
     output
 }
@@ -334,30 +335,32 @@ pub fn sym_aes_encrypt(header_ref: &StreamHeader, input: &[u8]) -> Vec<u8> {
 /// this also keeps track of which peer sent it, in case that came into question
 pub fn sym_aes_decrypt(
     header: &StreamHeader,
-    input: &[u8],
+    input: &mut [u8],
 ) -> Result<(Vec<u8>, StreamHeader, Vec<usize>), NetworkError> {
     let mut indexes = Vec::new();
-    let decryptor = AesSafe128DecryptorX8::new(header.key());
+    let decryptor = Aes128::new(header.key());
     let mut header_vec = Vec::with_capacity(128);
-    unsafe { header_vec.set_len(128) }
+    //unsafe { header_vec.set_len(128) }
     // create output vector
     let mut output = Vec::new();
     // decrypt the StreamHeader
-    decryptor.decrypt_block_x8(&input[0..128], &mut header_vec);
+    decryptor.decrypt_blocks(&mut input[0..128]);
+    header_vec.extend_from_slice(&input[0..128]);
     let remote_header = StreamHeader::from_raw_padded(&header_vec)?;
     let rem = remote_header.remander();
     let data_len = remote_header.packet_len();
-    let mut read_data: [u8; 128] = [0; 128];
+    //let mut read_data: [u8; 128] = [0; 128];
     for index in (128..data_len + 128).step_by(128) {
-        decryptor.decrypt_block_x8(&input[index..index + 128], &mut read_data[..]);
-        output.extend_from_slice(&read_data);
+        decryptor.decrypt_blocks(&mut input[index..index + 128]);
+        output.extend_from_slice(&input[index..index+128]);
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
     indexes.push(data_len);
     if (newlen + rem as usize + 128) < input.len() {
+        let the_len = input.len();
         let (next_packet, second_header, rec_indexes) =
-            sym_aes_decrypt(header, &input[data_len + (rem as usize) + 128..input.len()])?;
+            sym_aes_decrypt(header, &mut input[data_len + (rem as usize) + 128..the_len])?;
         indexes.extend_from_slice(&rec_indexes);
         output.extend_from_slice(&next_packet);
         if second_header.peer_hash() != remote_header.peer_hash() {

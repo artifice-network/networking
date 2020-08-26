@@ -50,7 +50,7 @@ async fn handshake(
         .await?;
     let mut inbuf: [u8; 1000] = [0; 1000];
     let data_len = tcpstream.read(&mut inbuf).await?;
-    let (dec_data, new_header, _indexes) = sym_aes_decrypt(header, &inbuf[0..data_len])?;
+    let (dec_data, new_header, _indexes) = sym_aes_decrypt(header, &mut inbuf[0..data_len])?;
     if header.peer_hash() != new_header.peer_hash() {
         return Err(NetworkError::ConnectionDenied(
             "headers don't match".to_string(),
@@ -128,7 +128,7 @@ impl OwnedSllpReceiver {
 impl AsyncRecv for OwnedSllpReceiver {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let (data, data_len) = match self.receiver.recv().await {
+        let (mut data, data_len) = match self.receiver.recv().await {
             Some(result) => result,
             None => {
                 return Err(NetworkError::IOError(std::io::Error::new(
@@ -137,7 +137,7 @@ impl AsyncRecv for OwnedSllpReceiver {
                 )))
             }
         };
-        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &data[0..data_len])?;
+        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &mut data[0..data_len])?;
         if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "potential man in the middle attack".to_string(),
@@ -167,7 +167,7 @@ impl<'a> SllpReceiver<'a> {
 impl<'a> AsyncRecv for SllpReceiver<'a> {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let (data, data_len) = match self.receiver.recv().await {
+        let (mut data, data_len) = match self.receiver.recv().await {
             Some(result) => result,
             None => {
                 return Err(NetworkError::IOError(std::io::Error::new(
@@ -176,7 +176,7 @@ impl<'a> AsyncRecv for SllpReceiver<'a> {
                 )))
             }
         };
-        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &data[0..data_len])?;
+        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &mut data[0..data_len])?;
         if self.header.peer_hash() != header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(String::from(
                 "header's don't match",
@@ -285,7 +285,7 @@ impl AsyncSend for SllpStream {
 impl AsyncRecv for SllpStream {
     type RecvError = NetworkError;
     async fn recv(&mut self, outbuf: &mut Vec<u8>) -> Result<Vec<usize>, NetworkError> {
-        let (data, data_len) = match self.query.recv().await {
+        let (mut data, data_len) = match self.query.recv().await {
             Some(result) => result,
             None => {
                 return Err(NetworkError::IOError(std::io::Error::new(
@@ -294,7 +294,7 @@ impl AsyncRecv for SllpStream {
                 )))
             }
         };
-        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &data[0..data_len])?;
+        let (dec_data, header, indexes) = sym_aes_decrypt(&self.header, &mut data[0..data_len])?;
         if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "potential man in the middle attack".to_string(),

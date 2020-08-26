@@ -43,7 +43,7 @@ async fn recv_data<S: AsyncRead + std::marker::Unpin>(
         data_len += stream.read(&mut buffer[data_len..65535]).await?;
     }
     println!("data_len: {}", data_len);
-    let (dec_data, mut header, indexes) = sym_aes_decrypt(&header, &buffer[0..data_len])?;
+    let (dec_data, mut header, indexes) = sym_aes_decrypt(&header, &mut buffer[0..data_len])?;
     if header.peer_hash() != header.peer_hash() {
         return Err(NetworkError::ConnectionDenied(
             "headers don't match".to_string(),
@@ -59,7 +59,7 @@ async fn recv_data<S: AsyncRead + std::marker::Unpin>(
     while data_len < header.packet_len() {
         let temp_len = stream.read(&mut buffer).await?;
         let (dec_buffer, stream_header, _indexes) =
-            sym_aes_decrypt(&header, &buffer[data_len..data_len + temp_len])?;
+            sym_aes_decrypt(&header, &mut buffer[data_len..data_len + temp_len])?;
         header = stream_header;
         data_len += temp_len;
         buffer = [0; 65535];

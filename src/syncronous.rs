@@ -71,7 +71,7 @@ impl SyncStream {
         while data_len < packet_len {
             data_len += self.stream.read(&mut buffer[data_len..65535])?;
         }
-        let (dec_data, mut header, _indexes) = sym_aes_decrypt(&self.header, &buffer[0..data_len])?;
+        let (dec_data, mut header, _indexes) = sym_aes_decrypt(&self.header, &mut buffer[0..data_len])?;
         if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
@@ -90,7 +90,7 @@ impl SyncStream {
                 temp_len = self.stream.read(&mut buffer)?;
             }
             let (dec_buffer, stream_header, _indexes) =
-                sym_aes_decrypt(&self.header, &buffer[data_len..data_len + temp_len])?;
+                sym_aes_decrypt(&self.header, &mut buffer[data_len..data_len + temp_len])?;
             header = stream_header;
             data_len += temp_len;
             buffer = [0; 65535];
