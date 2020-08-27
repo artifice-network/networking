@@ -5,11 +5,7 @@ use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey}
 use std::fmt;
 
 use crate::NetworkError;
-use crate::StreamHeader;
-use crypto::{
-    aessafe::{AesSafe128DecryptorX8, AesSafe128EncryptorX8},
-    symmetriccipher::{BlockDecryptorX8, BlockEncryptorX8},
-};
+use crate::{StreamHeader, NetworkHash};
 
 /// the purpose of this structure is to provide an implementation of BigUint, as is used by the rsa crate, that can be serialized for the sake of storing an retriving rsa keys
 #[derive(Serialize, Deserialize, Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -166,11 +162,11 @@ impl From<&PrivKeyComp> for RSAPrivateKey {
 
 /// view the header for the packet, without decrypting anything else
 pub fn header_peak(key: &[u8], input: &[u8]) -> Result<StreamHeader, NetworkError> {
-    let decryptor = AesSafe128DecryptorX8::new(key);
+    let decryptor = Aes128::new(key);
     let mut header_vec = Vec::with_capacity(128);
-    unsafe { header_vec.set_len(128) }
+    header_vec.extend_from_slice(&input[0..128]);
     // decrypt the StreamHeader
-    decryptor.decrypt_block_x8(&input[0..128], &mut header_vec);
+    decryptor.decrypt_blocks(&mut header_vec);
     let remote_header = StreamHeader::from_raw_padded(&header_vec)?;
     Ok(remote_header)
 }
@@ -252,104 +248,42 @@ pub fn asym_aes_decrypt(
     Ok((output, header))
 }
 /// decrypt using last byte as indicator of padding
+#[deprecated(since = "0.2.0", note = "please use sym_inplace_decrypt instead")]
 pub fn simple_aes_decrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     if outbuf.is_empty() || key.is_empty() {
         return;
     }
-    let remander = outbuf[outbuf.len() - 1];
-    let decryptor = AesSafe128DecryptorX8::new(key);
-    let mut temp_vec = Vec::with_capacity(128);
-    outbuf.truncate(outbuf.len() - 1);
-    for index in (0..outbuf.len()).step_by(128) {
-        unsafe { temp_vec.set_len(128) }
-        decryptor.decrypt_block_x8(&outbuf[index..index + 128], &mut temp_vec[0..128]);
-        std::io::copy(&mut &temp_vec[..], &mut &mut outbuf[index..index + 128]).unwrap();
-        temp_vec.clear();
-    }
-    outbuf.truncate(outbuf.len() - remander as usize);
+    let header = StreamHeader::with_key(&NetworkHash::generate(), &NetworkHash::generate(), key.to_vec(), 0);
+    sym_inplace_encrypt(&header, outbuf);
 }
 /// encrypt and put padding on the end as unencrypted 8bit integer
+#[deprecated(since = "0.2.0", note = "please use sym_inplace_encrypt instead")]
 pub fn simple_aes_encrypt(key: &[u8], outbuf: &mut Vec<u8>) {
     if outbuf.is_empty() || key.is_empty() {
         return;
     }
-    let remander = 128 - (outbuf.len() % 128);
-    let encryptor = AesSafe128EncryptorX8::new(key);
-    let mut temp_vec = Vec::with_capacity(128);
-    let mut rem_vec = Vec::with_capacity(remander);
-    unsafe { rem_vec.set_len(remander) };
-    outbuf.extend_from_slice(&rem_vec);
-    for index in (0..outbuf.len()).step_by(128) {
-        temp_vec.extend_from_slice(&outbuf[index..index + 128]);
-        encryptor.encrypt_block_x8(&temp_vec, &mut outbuf[index..index + 128]);
-        temp_vec.clear();
-    }
-    outbuf.push(remander as u8);
+    let header = StreamHeader::with_key(&NetworkHash::generate(), &NetworkHash::generate(), key.to_vec(), 0);
+    sym_inplace_encrypt(&header, outbuf);
 }
-/// used tp encrypt outgoing network data, setting remander, and packet len for outgoing packet
+/// used to encrypt outgoing network data, setting remander, and packet len for outgoing packet
+#[deprecated(since = "0.2.0", note = "please use sym_inplace_encrypt instead")]
 pub fn sym_aes_encrypt(header_ref: &StreamHeader, input: &[u8]) -> Vec<u8> {
-    let mut header = header_ref.clone();
     let mut output = Vec::new();
-    let remander: u8 = 128 - (input.len() % 128) as u8;
-    let mut rem_vec = Vec::with_capacity(remander as usize);
-    unsafe { rem_vec.set_len(remander as usize) }
-    let key = header.key();
-    let encryptor = Aes128::new(key);
-    let mut data = Vec::with_capacity(input.len() + 128);
-    header.set_packet_len(input.len());
-    header.set_remander(remander);
-    let header_vec = header.to_raw_padded();
-    println!("header vec len: {}", header_vec.len());
-    data.extend_from_slice(&header_vec);
-    data.extend_from_slice(input);
-    data.extend_from_slice(&rem_vec);
-    let full_len = input.len();
-    for index in (0..full_len + 128).step_by(128) {
-        // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
-        encryptor.encrypt_blocks(&mut data[index..index + 128]);
-        output.extend_from_slice(&data[index..index + 128]);
-    }
+    output.extend_from_slice(input);
+    sym_inplace_encrypt(header_ref, &mut output);
     output
 }
 /// used to decrypt incoming network data of length and remander stored in packet.
 /// this also keeps track of which peer sent it, in case that came into question
+#[deprecated(since = "0.2.0", note = "please use sym_inplace_decrypt instead")]
 pub fn sym_aes_decrypt(
     header: &StreamHeader,
     input: &mut [u8],
 ) -> Result<(Vec<u8>, StreamHeader, Vec<usize>), NetworkError> {
-    let mut indexes = Vec::new();
-    let decryptor = Aes128::new(header.key());
-    let mut header_vec = Vec::with_capacity(128);
-    //unsafe { header_vec.set_len(128) }
-    // create output vector
     let mut output = Vec::new();
-    // decrypt the StreamHeader
-    decryptor.decrypt_blocks(&mut input[0..128]);
-    header_vec.extend_from_slice(&input[0..128]);
-    let remote_header = StreamHeader::from_raw_padded(&header_vec)?;
-    let rem = remote_header.remander();
-    let data_len = remote_header.packet_len();
-    //let mut read_data: [u8; 128] = [0; 128];
-    for index in (128..data_len + 128).step_by(128) {
-        decryptor.decrypt_blocks(&mut input[index..index + 128]);
-        output.extend_from_slice(&input[index..index + 128]);
-    }
-    let newlen = output.len() - (rem as usize);
-    output.truncate(newlen);
-    indexes.push(data_len);
-    if (newlen + rem as usize + 128) < input.len() {
-        let the_len = input.len();
-        let (next_packet, second_header, rec_indexes) =
-            sym_aes_decrypt(header, &mut input[data_len + (rem as usize) + 128..the_len])?;
-        indexes.extend_from_slice(&rec_indexes);
-        output.extend_from_slice(&next_packet);
-        if second_header.peer_hash() != remote_header.peer_hash() {
-            return Err(NetworkError::ConnectionDenied(
-                "headers don't match in decryption".to_string(),
-            ));
-        }
-    }
-    Ok((output, remote_header, indexes))
+    output.extend_from_slice(input);
+    let (mut headers, indexes) = sym_inplace_decrypt(header, &mut output)?;
+    Ok((output, headers.pop().unwrap(), indexes))
 }
 
 // =============================================================================
@@ -454,6 +388,8 @@ fn asym_encrypt_test() {
     assert!(600 > elapsed);
 }
 /// in place encryption, vector instead of slice is used in case buffer is to small
+// this lint is used here because what is being done, can't fail, but the compiler doesn't know that
+#[allow(unused_must_use)]
 pub fn sym_inplace_encrypt(header: &StreamHeader, data: &mut Vec<u8>) {
     // create padding and space for header
     let mut owned_header = header.clone();
