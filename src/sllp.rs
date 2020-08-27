@@ -93,7 +93,7 @@ async fn recv_incoming(
     let mut buffer: [u8; 65535] = [0; 65535];
     let (mut stream, tcpaddr) = listener.accept().await?;
     let data_len = stream.read(&mut buffer).await?;
-    let (dec_data, header) = aes_decrypt(&in_priv_key, &buffer[0..data_len])?;
+    let (dec_data, header) = aes_decrypt(&in_priv_key, &mut buffer[0..data_len])?;
     let layer3_addr: L4Addr = serde_json::from_str(&String::from_utf8(dec_data)?)?;
     let addr = SocketAddr::new(tcpaddr.ip(), layer3_addr.port());
     stream.write(&sym_aes_encrypt(&header, b"okay")).await?;
@@ -474,7 +474,8 @@ impl OwnedOutgoing {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
+        let header: StreamHeader =
+            StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
 
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
@@ -514,7 +515,8 @@ impl<'a> SllpOutgoing<'a> {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
+        let header: StreamHeader =
+            StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
 
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
@@ -638,7 +640,8 @@ impl SllpSocket {
         let (incoming_sender, incoming_receiver) = channel(1);
         let query = AsyncQuery::create(self.outgoing_sender.clone(), incoming_receiver);
         let key = random_string(16).into_bytes();
-        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
+        let header: StreamHeader =
+            StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), key, 0);
         handshake(&header, peer, &self.priv_key, self.addr).await?;
 
         let stream = SllpStream::new(query, header, peer.socket_addr());

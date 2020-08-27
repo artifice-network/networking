@@ -38,6 +38,7 @@ println!("got message: {} from server", string);
 */
 //#![warn(missing_docs, rust_2018_idioms)]
 #![feature(try_trait)]
+#![feature(vec_into_raw_parts)]
 #![allow(clippy::redundant_closure)]
 #[macro_use]
 extern crate serde_derive;
@@ -183,7 +184,7 @@ pub mod utils;
 pub mod net_core;
 pub use net_core::*;
 
-use rsa::{RSAPrivateKey};
+use rsa::RSAPrivateKey;
 use std::error::Error;
 use std::net::ToSocketAddrs;
 use std::{

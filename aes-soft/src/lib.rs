@@ -33,13 +33,20 @@ mod simd;
 
 pub use crate::impls::{Aes128, Aes192, Aes256};
 
+/// used as a trait to define creating new block ciphers
 pub trait NewBlockCipher {
+    /// create new block cipher type, note for aes use 128 bit | 192 bit | 256 bit aka 16byte, 24byte, 32byte keys
     fn new(key: &[u8]) -> Self;
 }
 
+/// implemented on block cipher types, to define shared behavior of encryption and decryption
 pub trait BlockCipher {
+    /// encrypt 16/24/32 blocks at a time respectively
     fn encrypt_block(&self, block: &mut [u8]);
+    /// decrypt 16/24/32 bytes at a time respectively
     fn decrypt_block(&self, block: &mut [u8]);
+    /// encrypt 128/192/256 bytes at a time respectively
     fn decrypt_blocks(&self, blocks: &mut [u8]);
+    /// decrypt 128/192/256 blocks at a time respectively
     fn encrypt_blocks(&self, blocks: &mut [u8]);
 }

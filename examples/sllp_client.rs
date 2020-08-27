@@ -15,7 +15,7 @@ async fn main() -> Result<(), Box<dyn Error>> {
     println!("about to create socket");
     let socket = SllpSocket::client_only(&config).await?;
     peer.set_socket_addr(SocketAddr::new(
-        IpAddr::V4(Ipv4Addr::new(10, 0, 0, 232)),
+        IpAddr::V4(Ipv4Addr::new(192, 168, 2, 5)),
         6464,
     ));
     println!("created socket");

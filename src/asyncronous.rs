@@ -418,7 +418,7 @@ impl<'a> Stream for Incoming<'a> {
                             };
                         }
                         let (_dec_data, header) =
-                            match aes_decrypt(&self.priv_key, &buffer[0..data_len]) {
+                            match aes_decrypt(&self.priv_key, &mut buffer[0..data_len]) {
                                 Ok(data_len) => data_len,
                                 Err(e) => return Poll::Ready(Some(Err(e))),
                             };

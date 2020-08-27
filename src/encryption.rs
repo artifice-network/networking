@@ -1,8 +1,8 @@
+use aes_soft::{Aes128, BlockCipher, NewBlockCipher};
 use num_bigint_dig::BigUint;
 use rand::rngs::OsRng;
 use rsa::{PaddingScheme, PublicKey, PublicKeyParts, RSAPrivateKey, RSAPublicKey};
 use std::fmt;
-use aes_soft::{Aes128, BlockCipher, NewBlockCipher};
 
 use crate::NetworkError;
 use crate::StreamHeader;
@@ -198,7 +198,7 @@ pub fn asym_aes_encrypt(
     // place padding in the input vector
     data.append(&mut aes_padding);
     assert_eq!(data.len() % 128, 0);
-    let encryptor = AesSafe128EncryptorX8::new(header.key());
+    let encryptor = Aes128::new(header.key());
     header.set_remander(rem);
     // make sure data length is tracted in case multiple packets are sent at the same time
     header.set_packet_len(data.len());
@@ -211,38 +211,19 @@ pub fn asym_aes_encrypt(
     output.append(&mut enc_key);
     let full_len = input.len() + rem as usize;
     for index in (0..full_len).step_by(128) {
-        let mut read_data: [u8; 128] = [0; 128];
         // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
-        encryptor.encrypt_block_x8(&data[index..index + 128], &mut read_data[..]);
-        output.extend_from_slice(&read_data);
+        encryptor.encrypt_blocks(&mut data[index..index + 128]);
+        output.extend_from_slice(&data[index..index + 128]);
     }
     Ok(output)
 }
-/*pub fn aes_inplace_decrypt(
-    priv_key: &RSAPrivateKey,
-    input: &mut Vec<u8>,
-) -> Result<StreamHeader, NetworkError> {
-    let padding = PaddingScheme::new_pkcs1v15_encrypt();
-    let header = StreamHeader::from_raw(&priv_key.decrypt(padding, &input[0..256])?)?;
-    let rem = header.remander();
-    let data_len = header.packet_len();
-    let decryptor = AesSafe128DecryptorX8::new(header.key());
-    //let mut read_data: [u8; 128] = [0; 128];
-    for index in (0..data_len).step_by(128) {
-        let (outbuf, inbuf) = input.split_at_mut(index + 256);
-        decryptor.decrypt_block_x8(&inbuf[0..128], &mut outbuf[index..index + 128]);
-    }
-    input.truncate(input.len() - (rem as usize + 256));
-    //assert_eq!(String::from_utf8(input), instr.to_string());
-    Ok(header)
-}*/
 // ===============================================================================
 //                          AES Decryption
 // ================================================================================
 /// uses rsa private key to decrypt data, returning the decrypted data
 pub fn asym_aes_decrypt(
     priv_key: &RSAPrivateKey,
-    input: &[u8],
+    input: &mut [u8],
 ) -> Result<(Vec<u8>, StreamHeader), NetworkError> {
     //assert!(input.len() < (65537));
     // create output vector
@@ -254,17 +235,17 @@ pub fn asym_aes_decrypt(
     let rem = header.remander();
     let data_len = header.packet_len();
     println!("packet len in asym: {}", data_len);
-    let decryptor = AesSafe128DecryptorX8::new(header.key());
-    let mut read_data: [u8; 128] = [0; 128];
+    let decryptor = Aes128::new(header.key());
     for index in (256..data_len + 256).step_by(128) {
-        decryptor.decrypt_block_x8(&input[index..index + 128], &mut read_data[..]);
-        output.extend_from_slice(&read_data);
+        decryptor.decrypt_blocks(&mut input[index..index + 128]);
+        output.extend_from_slice(&input[index..index+128]);
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
     if (newlen + rem as usize + 256) < input.len() {
+        let the_len = input.len();
         let (next_packet, stream_header) =
-            asym_aes_decrypt(priv_key, &input[data_len + 256..input.len()])?;
+            asym_aes_decrypt(priv_key, &mut input[data_len + 256..the_len])?;
         header = stream_header;
         output.extend_from_slice(&next_packet);
     }
@@ -324,10 +305,9 @@ pub fn sym_aes_encrypt(header_ref: &StreamHeader, input: &[u8]) -> Vec<u8> {
     data.extend_from_slice(&rem_vec);
     let full_len = input.len();
     for index in (0..full_len + 128).step_by(128) {
-        let mut read_data: [u8; 128] = [0; 128];
         // encrypt in sections of 8 blocks, each block having 16 bytes for a total of 128 bytes
         encryptor.encrypt_blocks(&mut data[index..index + 128]);
-        output.extend_from_slice(&data[index..index+128]);
+        output.extend_from_slice(&data[index..index + 128]);
     }
     output
 }
@@ -352,7 +332,7 @@ pub fn sym_aes_decrypt(
     //let mut read_data: [u8; 128] = [0; 128];
     for index in (128..data_len + 128).step_by(128) {
         decryptor.decrypt_blocks(&mut input[index..index + 128]);
-        output.extend_from_slice(&input[index..index+128]);
+        output.extend_from_slice(&input[index..index + 128]);
     }
     let newlen = output.len() - (rem as usize);
     output.truncate(newlen);
@@ -375,32 +355,61 @@ pub fn sym_aes_decrypt(
 // =============================================================================
 //                              Tests
 // =============================================================================
-/*#[test]
+#[test]
 fn sym_encrypt_test() {
     use crate::random_string;
+    use crate::NetworkHash;
     use rand::Rng;
     use std::time::SystemTime;
+    let mut avg = 0;
     for _ in 0..100 {
+        // start timer
         let time = SystemTime::now();
         let mut rng = rand::thread_rng();
-        let ffloat: f64 = rng.gen();
-        let instr = random_string((ffloat * 65410f64) as usize);
-        let key = random_string(16).into_bytes();
+
+        // create first random test data
+        let random_0: usize = rng.gen();
+        let instr = random_string((random_0 % 62432) + 256);
         let mut inbuf = instr.clone().into_bytes();
+
+        // create aes key
+        let key = random_string(16).into_bytes();
+
+        // create identity of StreamHeaders
         let peer_hash = NetworkHash::generate();
         let global_hash = NetworkHash::generate();
-        let mut header =
-            StreamHeader::with_key(&global_hash, &peer_hash, key.clone(), inbuf.len());
-        let mut output = sym_aes_encrypt(&mut header, &mut inbuf);
-        let sfloat: f64 = rng.gen();
-        let second_str = random_string((sfloat * 65410f64) as usize);
+        let mut header = StreamHeader::with_key(&global_hash, &peer_hash, key.clone(), inbuf.len());
+
+        sym_inplace_encrypt(&mut header, &mut inbuf);
+
+        // generate second test data
+        let random_1: usize = rng.gen();
+        let second_str = random_string((random_1 % 65410) + 256);
         let mut second_buf = second_str.clone().into_bytes();
         let mut second_header =
             StreamHeader::with_key(&global_hash, &peer_hash, key, second_buf.len());
-        output.extend_from_slice(&sym_aes_encrypt(&mut second_header, &mut second_buf));
-        let (inbuf, _stream_header, indexes) = sym_aes_decrypt(&header, &output).unwrap();
+        sym_inplace_encrypt(&mut second_header, &mut second_buf);
+
+        // concat the two packets
+        inbuf.extend_from_slice(&second_buf);
+
+        // decrypt into inbuf
+        let (_headers, indexes) = sym_inplace_decrypt(&header, &mut inbuf).unwrap();
         let remstr = instr.into_bytes();
+
+        /*let mut trans_vec = inbuf.clone();
+        let hashes: Vec<u128> = unsafe {
+            let (ptr, len, cap) = trans_vec.into_raw_parts();
+            Vec::from_raw_parts(ptr as *mut u128, len, cap)
+        };
+        let matches: Vec<NetworkHash> = hashes.into_iter().map(|h| {NetworkHash::from(h)}).filter(|h| {*h == global_hash}).collect();
+        println!("matches: {:?}", matches);
+        assert_eq!(matches.len(), 5);*/
+
+        println!("global hash: {}\n\n\n\n", global_hash);
         let remsecstr = second_str.into_bytes();
+        println!("remsecstr len: {}", remsecstr.len());
+        println!("indexes: {:?}", indexes);
         assert_eq!(remstr.len(), *indexes.get(0).unwrap());
         assert_eq!(remstr, inbuf[0..*indexes.get(0).unwrap()].to_vec());
         assert_eq!(remsecstr.len(), *indexes.get(1).unwrap());
@@ -409,10 +418,13 @@ fn sym_encrypt_test() {
             inbuf[*indexes.get(0).unwrap()..*indexes.get(0).unwrap() + 256].to_vec()
         );
         let elapsed = time.elapsed().unwrap().as_millis();
+        avg += elapsed;
         println!("elapsed: {}", elapsed);
-        assert!(500 > elapsed);
+        assert!(200 > elapsed);
     }
-}*/
+    avg = avg / 100;
+    assert!(avg < 150);
+}
 #[test]
 fn asym_encrypt_test() {
     use crate::NetworkHash;
@@ -441,11 +453,61 @@ fn asym_encrypt_test() {
     println!("{}", elapsed);
     assert!(600 > elapsed);
 }
-/*/// in place encryption, vector instead of slice is used in case buffer is to small
+/// in place encryption, vector instead of slice is used in case buffer is to small
 pub fn sym_inplace_encrypt(header: &StreamHeader, data: &mut Vec<u8>) {
+    // create padding and space for header
+    let mut owned_header = header.clone();
+    owned_header.set_packet_len(data.len());
+    let remander: u8 = 128 - (data.len() % 128) as u8;
+    owned_header.set_remander(remander);
+    println!("header in encrypt: {:?}\n\n\n\n", owned_header);
+    let header_vec = owned_header.to_raw_padded();
 
+    // add created padding and header
+    let mut remvec = Vec::with_capacity(128 + (remander as usize));
+    unsafe { remvec.set_len(128 + (remander as usize)) }
+    data.extend_from_slice(&remvec);
+    data.rotate_right(128);
+    std::io::copy(&mut header_vec.as_slice(), &mut &mut data[0..128]);//.unwrap();
+
+    // create the encryptor
+    let encryptor = Aes128::new(header.key());
+
+    for index in (0..data.len()).step_by(128) {
+        encryptor.encrypt_blocks(&mut data[index..index + 128]);
+    }
 }
 /// in place decryption, vector instead of slice is used in case the buffer is to small
-pub fn sym_inplace_decrypt(header: &StreamHeader, data: &mut Vec<u8>) {
+pub fn sym_inplace_decrypt(
+    header: &StreamHeader,
+    data: &mut Vec<u8>,
+) -> Result<(Vec<StreamHeader>, Vec<usize>), NetworkError> {
+    assert_eq!(data.len() % 128, 0);
+    let decryptor = Aes128::new(header.key());
 
-}*/
+    for index in (0..data.len()).step_by(128) {
+        decryptor.decrypt_blocks(&mut data[index..index + 128]);
+    }
+
+    let remote_header = StreamHeader::from_raw_padded(&data[0..128])?;
+    let mut packet_len = 0;//remote_header.packet_len();
+    let mut remander = 0;//remote_header.remander() as usize;
+    //data.drain(0..128);
+    let mut indexes = Vec::new();
+    let mut headers = Vec::new();
+    //indexes.push(remote_header.packet_len());
+    println!("remote_header: {:?}\n\n\n\n", remote_header);
+    headers.push(remote_header);
+
+    while packet_len + remander < data.len() {
+        let new_header = StreamHeader::from_raw_padded(&data[packet_len+remander..packet_len +remander + 128])?;
+        println!("new_header: {:?}\n\n\n\n", new_header);
+        println!("packet_len: {}, remander: {}\n\n", packet_len, remander);
+        data.drain(packet_len..packet_len + 128 + remander);
+        remander = new_header.remander() as usize;
+        indexes.push(new_header.packet_len());
+        packet_len += new_header.packet_len();
+        headers.push(new_header);
+    }
+    Ok((headers, indexes))
+}

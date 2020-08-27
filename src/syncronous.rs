@@ -55,7 +55,8 @@ impl SyncStream {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let aes_key = random_string(16).into_bytes();
-        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
+        let header: StreamHeader =
+            StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
         let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;
@@ -71,7 +72,8 @@ impl SyncStream {
         while data_len < packet_len {
             data_len += self.stream.read(&mut buffer[data_len..65535])?;
         }
-        let (dec_data, mut header, _indexes) = sym_aes_decrypt(&self.header, &mut buffer[0..data_len])?;
+        let (dec_data, mut header, _indexes) =
+            sym_aes_decrypt(&self.header, &mut buffer[0..data_len])?;
         if header.peer_hash() != self.header.peer_hash() {
             return Err(NetworkError::ConnectionDenied(
                 "headers don't match".to_string(),
@@ -127,7 +129,7 @@ impl std::iter::Iterator for SyncHost {
                             data_len = stream.read(&mut buffer).unwrap();
                         }
                         let (_dec_data, header) =
-                            asym_aes_decrypt(&self.priv_key, &buffer[0..data_len])
+                            asym_aes_decrypt(&self.priv_key, &mut buffer[0..data_len])
                                 .expect("decryption failed");
                         let addr = match stream.peer_addr() {
                             Ok(addr) => addr,
@@ -184,7 +186,8 @@ impl SyncHost {
             RSAPublicKey::new(key.n().into(), key.e().into()).expect("couldn't create key");
         let data = serde_json::to_string(&peer).unwrap().into_bytes();
         let aes_key = random_string(16).into_bytes();
-        let header: StreamHeader = StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
+        let header: StreamHeader =
+            StreamHeader::with_key(peer.global_peer_hash(), peer.peer_hash(), aes_key, 0);
         let enc_data = asym_aes_encrypt(&public_key, header.clone(), &data).unwrap();
         stream.write_all(&enc_data)?;
         let addr = stream.peer_addr()?;
